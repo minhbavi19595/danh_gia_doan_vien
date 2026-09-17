@@ -12,7 +12,7 @@ export default function DashboardLayout({
   allowedRole
 }: {
   children: React.ReactNode;
-  allowedRole: 'admin' | 'department';
+  allowedRole: string | string[];
 }) {
   const { user, role, logout, loading } = useAuth();
   const router = useRouter();
@@ -22,13 +22,13 @@ export default function DashboardLayout({
     if (!loading) {
       if (!user) {
         router.replace('/login');
-      } else if (role !== allowedRole) {
+      } else if (typeof allowedRole === 'string' ? role !== allowedRole : !allowedRole.includes(role || '')) {
         router.replace('/');
       }
     }
   }, [user, role, loading, allowedRole, router]);
 
-  if (loading || !user || role !== allowedRole) {
+  if (loading || !user || (typeof allowedRole === 'string' ? role !== allowedRole : !allowedRole.includes(role || ''))) {
     return null;
   }
 
@@ -41,19 +41,37 @@ export default function DashboardLayout({
           </div>
           <div className="flex items-center gap-6">
             <Link 
-              href={role === 'admin' ? '/admin' : '/department'} 
-              className={`flex items-center gap-2 text-sm font-medium transition-colors ${pathname === '/admin' || pathname === '/department' ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+              href={role === 'admin' ? '/admin' : role === 'bi_thu_doan' ? '/admin/approvals' : '/department'} 
+              className={`flex items-center gap-2 text-sm font-medium transition-colors ${pathname === '/admin' || pathname === '/admin/approvals' || pathname === '/department' ? 'text-white' : 'text-slate-400 hover:text-white'}`}
             >
               <LayoutDashboard size={18} />
               Dashboard
             </Link>
             {role === 'admin' && (
+              <>
+                <Link 
+                  href="/admin/chi-doan" 
+                  className={`flex items-center gap-2 text-sm font-medium transition-colors ${pathname.includes('/chi-doan') ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  <Users size={18} />
+                  Quản lý Chi đoàn
+                </Link>
+                <Link 
+                  href="/admin/departments" 
+                  className={`flex items-center gap-2 text-sm font-medium transition-colors ${pathname.includes('/departments') ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  <Users size={18} />
+                  Quản lý Tài khoản
+                </Link>
+              </>
+            )}
+            {role === 'bi_thu_doan' && (
               <Link 
-                href="/admin/departments" 
-                className={`flex items-center gap-2 text-sm font-medium transition-colors ${pathname.includes('/departments') ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+                href="/admin/approvals" 
+                className={`flex items-center gap-2 text-sm font-medium transition-colors ${pathname.includes('/approvals') ? 'text-white' : 'text-slate-400 hover:text-white'}`}
               >
                 <Users size={18} />
-                Quản lý Phòng ban
+                Duyệt điểm
               </Link>
             )}
           </div>
@@ -62,7 +80,7 @@ export default function DashboardLayout({
         <div className="flex items-center gap-4">
           <div className="text-sm text-slate-400 flex items-center gap-2">
             {user.email}
-            <span className="badge badge-b bg-blue-500/20">{role === 'admin' ? 'Admin' : 'Phòng Ban'}</span>
+            <span className="badge badge-b bg-blue-500/20">{role === 'admin' ? 'Admin' : role === 'bi_thu_doan' ? 'Bí thư Đoàn' : 'Bí thư Chi đoàn'}</span>
           </div>
           <button 
             onClick={logout} 

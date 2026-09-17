@@ -188,17 +188,7 @@ export default function AllDepartmentsDetail() {
 
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2 bg-slate-800/50 p-2 rounded-xl border border-slate-700/50">
-            <span className="text-sm text-slate-400">Tháng:</span>
-            <select 
-              className="bg-slate-900 border border-slate-700 text-sm text-white rounded-lg px-2 py-1 focus:outline-none focus:border-blue-500"
-              value={currentMonth}
-              onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
-            >
-              {Array.from({ length: currentYear === new Date().getFullYear() ? new Date().getMonth() + 1 : 12 }, (_, i) => i + 1).map(m => (
-                <option key={m} value={m}>Tháng {m}</option>
-              ))}
-            </select>
-            <span className="text-sm text-slate-400 ml-2">Năm:</span>
+            <span className="text-sm text-slate-400">Năm:</span>
             <select 
               className="bg-slate-900 border border-slate-700 text-sm text-white rounded-lg px-2 py-1 focus:outline-none focus:border-blue-500"
               value={currentYear}
@@ -212,6 +202,16 @@ export default function AllDepartmentsDetail() {
             >
               {Array.from({ length: new Date().getFullYear() - 2026 + 1 }, (_, i) => new Date().getFullYear() - i).map(y => (
                 <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+            <span className="text-sm text-slate-400 ml-2">Tháng:</span>
+            <select 
+              className="bg-slate-900 border border-slate-700 text-sm text-white rounded-lg px-2 py-1 focus:outline-none focus:border-blue-500"
+              value={currentMonth}
+              onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
+            >
+              {Array.from({ length: currentYear === new Date().getFullYear() ? new Date().getMonth() + 1 : 12 }, (_, i) => i + 1).map(m => (
+                <option key={m} value={m}>Tháng {m}</option>
               ))}
             </select>
           </div>

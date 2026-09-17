@@ -23,6 +23,8 @@ export default function AdminDashboard() {
         .from('evaluations')
         .select(`
           total_score,
+          bch_total_score,
+          status,
           members!inner (
             department_id,
             departments ( id, name )
@@ -37,7 +39,7 @@ export default function AdminDashboard() {
       const deptMap: Record<string, any> = {};
 
       (evals || []).forEach(e => {
-        const score = e.total_score || 0;
+        const score = e.status === 'rejected' ? (e.bch_total_score || 0) : (e.total_score || 0);
         let type = '';
         if (score >= 90) { A++; type = 'A'; }
         else if (score >= 70) { B++; type = 'B'; }
@@ -118,16 +120,6 @@ export default function AdminDashboard() {
         </div>
         
         <div className="flex items-center gap-3 flex-wrap bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
-          <span className="text-slate-400">Tháng:</span>
-          <select 
-            className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
-            value={currentMonth}
-            onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
-          >
-            {Array.from({ length: currentYear === new Date().getFullYear() ? new Date().getMonth() + 1 : 12 }, (_, i) => i + 1).map(m => (
-              <option key={m} value={m}>Tháng {m}</option>
-            ))}
-          </select>
           <span className="text-slate-400">Năm:</span>
           <select 
             className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
@@ -142,6 +134,16 @@ export default function AdminDashboard() {
           >
             {Array.from({ length: new Date().getFullYear() - 2026 + 1 }, (_, i) => new Date().getFullYear() - i).map(y => (
               <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+          <span className="text-slate-400">Tháng:</span>
+          <select 
+            className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
+            value={currentMonth}
+            onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
+          >
+            {Array.from({ length: currentYear === new Date().getFullYear() ? new Date().getMonth() + 1 : 12 }, (_, i) => i + 1).map(m => (
+              <option key={m} value={m}>Tháng {m}</option>
             ))}
           </select>
         </div>

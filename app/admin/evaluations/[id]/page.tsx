@@ -83,7 +83,8 @@ export default function DepartmentDetail() {
     if (rankFilter === 'all') return true;
     const ev = evaluations[member.id];
     if (!ev || ev.total_score === undefined) return rankFilter === 'none';
-    const rank = getRank(ev.total_score);
+    const total = ev.status === 'rejected' ? ev.bch_total_score : ev.total_score;
+    const rank = getRank(total);
     return rank.type === rankFilter;
   });
 
@@ -93,7 +94,8 @@ export default function DepartmentDetail() {
     const ev = evaluations[m.id];
     if (ev && ev.total_score !== undefined) {
       stats.total++;
-      const r = getRank(ev.total_score);
+      const total = ev.status === 'rejected' ? ev.bch_total_score : ev.total_score;
+      const r = getRank(total);
       if (r.type === 'A') stats.A++;
       else if (r.type === 'B') stats.B++;
       else if (r.type === 'C') stats.C++;
@@ -118,15 +120,24 @@ export default function DepartmentDetail() {
     filteredMembers.forEach((member, i) => {
       const ev = evaluations[member.id] || {};
       const hasEval = ev.id || ev.total_score !== undefined;
-      const rank = hasEval ? getRank(ev.total_score) : { text: '', type: '' };
+      const isRejected = ev.status === 'rejected';
+      const s1 = isRejected ? ev.bch_score_1 : ev.score_1;
+      const s2 = isRejected ? ev.bch_score_2 : ev.score_2;
+      const s3 = isRejected ? ev.bch_score_3 : ev.score_3;
+      const s4 = isRejected ? ev.bch_score_4 : ev.score_4;
+      const s5 = isRejected ? ev.bch_score_5 : ev.score_5;
+      const total = isRejected ? ev.bch_total_score : ev.total_score;
+      const note = isRejected ? ev.bch_note : ev.note;
+      
+      const rank = hasEval ? getRank(total) : { text: '', type: '' };
       rows.push([
         i + 1, member.full_name, member.title,
-        hasEval ? (ev.score_1 || 0) : '',
-        hasEval ? (ev.score_2 || 0) : '',
-        hasEval ? (ev.score_3 || 0) : '',
-        hasEval ? (ev.score_4 || 0) : '',
-        hasEval ? (ev.score_5 || 0) : '',
-        hasEval ? (ev.total_score || 0) : '',
+        hasEval ? (s1 || 0) : '',
+        hasEval ? (s2 || 0) : '',
+        hasEval ? (s3 || 0) : '',
+        hasEval ? (s4 || 0) : '',
+        hasEval ? (s5 || 0) : '',
+        hasEval ? (total || 0) : '',
         rank.text,
         ev.note || ''
       ]);
@@ -205,16 +216,6 @@ export default function DepartmentDetail() {
             {department?.name || 'Đang tải...'}
           </h1>
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-slate-400">Tháng:</span>
-            <select
-              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
-              value={currentMonth}
-              onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
-            >
-              {Array.from({ length: currentYear === new Date().getFullYear() ? new Date().getMonth() + 1 : 12 }, (_, i) => i + 1).map(m => (
-                <option key={m} value={m}>Tháng {m}</option>
-              ))}
-            </select>
             <span className="text-slate-400">Năm:</span>
             <select
               className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
@@ -229,6 +230,16 @@ export default function DepartmentDetail() {
             >
               {Array.from({ length: new Date().getFullYear() - 2026 + 1 }, (_, i) => new Date().getFullYear() - i).map(y => (
                 <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+            <span className="text-slate-400">Tháng:</span>
+            <select
+              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
+              value={currentMonth}
+              onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
+            >
+              {Array.from({ length: currentYear === new Date().getFullYear() ? new Date().getMonth() + 1 : 12 }, (_, i) => i + 1).map(m => (
+                <option key={m} value={m}>Tháng {m}</option>
               ))}
             </select>
           </div>
@@ -320,7 +331,16 @@ export default function DepartmentDetail() {
                 filteredMembers.map((member, index) => {
                   const ev = evaluations[member.id] || {};
                   const hasEval = ev.id || ev.total_score !== undefined;
-                  const total = ev.total_score ?? 0;
+                  const isRejected = ev.status === 'rejected';
+                  
+                  const s1 = isRejected ? ev.bch_score_1 : ev.score_1;
+                  const s2 = isRejected ? ev.bch_score_2 : ev.score_2;
+                  const s3 = isRejected ? ev.bch_score_3 : ev.score_3;
+                  const s4 = isRejected ? ev.bch_score_4 : ev.score_4;
+                  const s5 = isRejected ? ev.bch_score_5 : ev.score_5;
+                  const total = isRejected ? ev.bch_total_score : ev.total_score;
+                  const note = isRejected ? ev.bch_note : ev.note;
+                  
                   const rank = hasEval ? getRank(total) : { text: '-', class: '', type: '' };
 
                   return (
@@ -328,16 +348,32 @@ export default function DepartmentDetail() {
                       <td className="table-td text-center border-r border-slate-700/50 text-slate-400 p-1 text-xs">{index + 1}</td>
                       <td className="table-td font-medium border-r border-slate-700/50 text-white p-1 text-xs">{member.full_name}</td>
                       <td className="table-td text-slate-400 border-r border-slate-700/50 p-1 text-xs">{member.title}</td>
-                      <td className="table-td text-center border-r border-slate-700/50 p-1 text-xs">{hasEval ? (ev.score_1 ?? 0) : '-'}</td>
-                      <td className="table-td text-center border-r border-slate-700/50 p-1 text-xs">{hasEval ? (ev.score_2 ?? 0) : '-'}</td>
-                      <td className="table-td text-center border-r border-slate-700/50 p-1 text-xs">{hasEval ? (ev.score_3 ?? 0) : '-'}</td>
-                      <td className="table-td text-center border-r border-slate-700/50 p-1 text-xs">{hasEval ? (ev.score_4 ?? 0) : '-'}</td>
-                      <td className="table-td text-center border-r border-slate-700/50 p-1 text-xs">{hasEval ? (ev.score_5 ?? 0) : '-'}</td>
-                      <td className="table-td text-center border-r border-slate-700/50 font-bold text-xs bg-blue-500/5 p-1">{hasEval ? total : '-'}</td>
+                      
+                      {[
+                        { val: s1, old: ev.score_1 },
+                        { val: s2, old: ev.score_2 },
+                        { val: s3, old: ev.score_3 },
+                        { val: s4, old: ev.score_4 },
+                        { val: s5, old: ev.score_5 }
+                      ].map((col, idx) => (
+                        <td key={idx} className="table-td text-center border-r border-slate-700/50 p-1 text-xs relative">
+                          {hasEval ? (col.val ?? '-') : '-'}
+                          {isRejected && col.val !== col.old && (
+                            <span className="absolute top-0 right-1 text-[12px] text-slate-500 line-through" title="Điểm chi đoàn chấm">{col.old}</span>
+                          )}
+                        </td>
+                      ))}
+                      
+                      <td className="table-td text-center border-r border-slate-700/50 font-bold text-xs bg-blue-500/5 p-1 relative">
+                        {hasEval ? total : '-'}
+                        {isRejected && total !== ev.total_score && (
+                          <span className="absolute top-0 right-1 text-[12px] text-slate-500 line-through" title="Điểm chi đoàn chấm">{ev.total_score}</span>
+                        )}
+                      </td>
                       <td className="table-td text-center border-r border-slate-700/50 bg-blue-500/5 p-1">
                         <span className={`badge ${rank.class} text-[10px] px-1 py-0.5`}>{rank.text}</span>
                       </td>
-                      <td className="table-td text-slate-400 text-xs p-1 truncate max-w-[100px]">{ev.note || ''}</td>
+                      <td className="table-td text-slate-400 text-xs p-1 truncate max-w-[100px]">{note || ''}</td>
                     </tr>
                   );
                 })

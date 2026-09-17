@@ -7,8 +7,8 @@ import { useToast } from '@/contexts/ToastContext';
 
 export default function Departments() {
   const [departments, setDepartments] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [userStatuses, setUserStatuses] = useState<Record<string, any>>({});
   const toast = useToast();
   
   // Modals state
@@ -17,7 +17,7 @@ export default function Departments() {
   const [selectedDept, setSelectedDept] = useState<any>(null);
   
   // Form state
-  const [formData, setFormData] = useState({ name: '', email: '', password: '' });
+  const [formData, setFormData] = useState({ department_id: '', email: '', password: '', role: 'bi_thu_chi_doan' });
   const [passwordForm, setPasswordForm] = useState({ newPassword: '' });
   const [submitting, setSubmitting] = useState(false);
   const [showCreatePassword, setShowCreatePassword] = useState(false);
@@ -37,15 +37,10 @@ export default function Departments() {
       if (error) throw error;
       setDepartments(data || []);
 
-      // Fetch user ban statuses
-      const { data: statusData } = await supabase.rpc('admin_get_users_status');
-      if (statusData) {
-        const statusMap: Record<string, any> = {};
-        statusData.forEach((s: any) => {
-          statusMap[s.user_id] = s;
-        });
-        setUserStatuses(statusMap);
-      }
+      // Fetch users
+      const { data: usersData, error: usersError } = await supabase.rpc('admin_get_all_users');
+      if (usersError) throw usersError;
+      setUsers(usersData || []);
     } catch (err) {
       console.error('Error fetching departments:', err);
     } finally {
@@ -61,14 +56,15 @@ export default function Departments() {
       const { error: rpcError } = await supabase.rpc('admin_create_user', {
         email: formData.email,
         password: formData.password,
-        department_name: formData.name
+        p_department_id: formData.role === 'bi_thu_chi_doan' ? formData.department_id : null,
+        role_name: formData.role
       });
       
       if (rpcError) throw rpcError;
       
-      toast.success('Tạo tài khoản phòng ban thành công!');
+      toast.success('Tạo tài khoản thành công!');
       setShowCreateModal(false);
-      setFormData({ name: '', email: '', password: '' });
+      setFormData({ department_id: '', email: '', password: '', role: 'bi_thu_chi_doan' });
       setShowCreatePassword(false);
       fetchDepartments();
     } catch (err: any) {
@@ -84,7 +80,7 @@ export default function Departments() {
       setSubmitting(true);
       
       const { error: rpcError } = await supabase.rpc('admin_update_user_password', {
-        target_user_id: selectedDept.user_id,
+        target_user_id: selectedDept.id, // selectedDept is now a user object
         new_password: passwordForm.newPassword
       });
       
@@ -102,22 +98,21 @@ export default function Departments() {
     }
   };
 
-  const handleToggleBan = async (dept: any) => {
-    const status = userStatuses[dept.user_id];
-    const isBanned = status?.banned_until && new Date(status.banned_until) > new Date();
+  const handleToggleBan = async (user: any) => {
+    const isBanned = user.banned_until && new Date(user.banned_until) > new Date();
     
     try {
       const { error } = await supabase.rpc('admin_toggle_user_ban', {
-        target_user_id: dept.user_id,
+        target_user_id: user.id,
         is_banned: !isBanned
       });
       
       if (error) throw error;
       
       if (isBanned) {
-        toast.success(`Đã mở khóa tài khoản "${dept.name}"`);
+        toast.success(`Đã mở khóa tài khoản "${user.email}"`);
       } else {
-        toast.info(`Đã khóa tài khoản "${dept.name}"`);
+        toast.info(`Đã khóa tài khoản "${user.email}"`);
       }
       fetchDepartments();
     } catch (err: any) {
@@ -125,17 +120,16 @@ export default function Departments() {
     }
   };
 
-  const isBanned = (userId: string) => {
-    const status = userStatuses[userId];
-    return status?.banned_until && new Date(status.banned_until) > new Date();
+  const isBanned = (user: any) => {
+    return user.banned_until && new Date(user.banned_until) > new Date();
   };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold mb-2">Quản lý Phòng ban</h1>
-          <p className="text-slate-400">Tạo và quản lý tài khoản cho các Chi đoàn / Phòng ban</p>
+          <h1 className="text-2xl font-bold mb-2">Quản lý Chi đoàn & Tài khoản</h1>
+          <p className="text-slate-400">Tạo và quản lý tài khoản cho các Chi đoàn / Bí thư Đoàn</p>
         </div>
         <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
           <Plus size={18} />
@@ -148,7 +142,9 @@ export default function Departments() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr>
-                <th className="table-th">Tên Phòng ban (Chi đoàn)</th>
+                <th className="table-th">Email</th>
+                <th className="table-th">Role</th>
+                <th className="table-th">Chi đoàn (nếu có)</th>
                 <th className="table-th">Trạng thái</th>
                 <th className="table-th">Mã User (User ID)</th>
                 <th className="table-th">Ngày tạo</th>
@@ -157,15 +153,21 @@ export default function Departments() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5} className="text-center p-8 text-slate-400">Đang tải dữ liệu...</td></tr>
-              ) : departments.length === 0 ? (
-                <tr><td colSpan={5} className="text-center p-8 text-slate-400">Chưa có phòng ban nào</td></tr>
+                <tr><td colSpan={7} className="text-center p-8 text-slate-400">Đang tải dữ liệu...</td></tr>
+              ) : users.length === 0 ? (
+                <tr><td colSpan={7} className="text-center p-8 text-slate-400">Chưa có tài khoản nào</td></tr>
               ) : (
-                departments.map(dept => (
-                  <tr key={dept.id} className="hover:bg-slate-800/50 transition-colors">
-                    <td className="table-td font-medium">{dept.name}</td>
+                users.map(user => (
+                  <tr key={user.id} className="hover:bg-slate-800/50 transition-colors">
+                    <td className="table-td font-medium text-white">{user.email}</td>
                     <td className="table-td">
-                      {isBanned(dept.user_id) ? (
+                      <span className={`badge ${user.role === 'bi_thu_doan' ? 'badge-a text-[10px]' : 'badge-b text-[10px]'}`}>
+                        {user.role === 'bi_thu_doan' ? 'Bí thư Đoàn' : 'Bí thư Chi đoàn'}
+                      </span>
+                    </td>
+                    <td className="table-td text-slate-400">{user.department_name || '-'}</td>
+                    <td className="table-td">
+                      {isBanned(user) ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-500/15 text-red-400 border border-red-500/30">
                           <ShieldOff size={14} />
                           Đã khóa
@@ -177,26 +179,26 @@ export default function Departments() {
                         </span>
                       )}
                     </td>
-                    <td className="table-td text-slate-500 text-xs font-mono">{dept.user_id}</td>
-                    <td className="table-td">{new Date(dept.created_at).toLocaleDateString('vi-VN')}</td>
+                    <td className="table-td text-slate-500 text-xs font-mono">{user.id}</td>
+                    <td className="table-td">{new Date(user.created_at).toLocaleDateString('vi-VN')}</td>
                     <td className="table-td text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button 
                           className={`p-2 rounded-lg transition-colors ${
-                            isBanned(dept.user_id) 
+                            isBanned(user) 
                               ? 'text-red-400 hover:text-emerald-400 hover:bg-emerald-500/10' 
                               : 'text-slate-400 hover:text-red-400 hover:bg-red-500/10'
                           }`}
-                          title={isBanned(dept.user_id) ? 'Mở khóa tài khoản' : 'Khóa tài khoản'}
-                          onClick={() => handleToggleBan(dept)}
+                          title={isBanned(user) ? 'Mở khóa tài khoản' : 'Khóa tài khoản'}
+                          onClick={() => handleToggleBan(user)}
                         >
-                          {isBanned(dept.user_id) ? <Lock size={18} /> : <Unlock size={18} />}
+                          {isBanned(user) ? <Lock size={18} /> : <Unlock size={18} />}
                         </button>
                         <button 
                           className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
                           title="Đổi mật khẩu"
                           onClick={() => {
-                            setSelectedDept(dept);
+                            setSelectedDept(user);
                             setShowPasswordModal(true);
                           }}
                         >
@@ -217,23 +219,41 @@ export default function Departments() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="glass-panel w-full max-w-md p-6 animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold">Tạo tài khoản Phòng ban</h3>
+              <h3 className="text-xl font-bold">Tạo tài khoản</h3>
               <button className="text-slate-400 hover:text-white" onClick={() => setShowCreateModal(false)}>
                 <X size={20} />
               </button>
             </div>
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Tên Phòng ban / Chi đoàn</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
+                <label className="block text-sm font-medium text-slate-300 mb-2">Vai trò (Role)</label>
+                <select 
+                  className="form-input bg-black text-white" 
                   required
-                  value={formData.name}
-                  onChange={e => setFormData({...formData, name: e.target.value})}
-                  placeholder="VD: Chi đoàn Marketing"
-                />
+                  value={formData.role}
+                  onChange={e => setFormData({...formData, role: e.target.value})}
+                >
+                  <option value="bi_thu_chi_doan">Bí thư Chi đoàn</option>
+                  <option value="bi_thu_doan">Bí thư Đoàn Trung tâm</option>
+                </select>
               </div>
+
+              {formData.role === 'bi_thu_chi_doan' && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Chọn Chi đoàn</label>
+                  <select 
+                    className="form-input bg-black text-white" 
+                    required
+                    value={formData.department_id}
+                    onChange={e => setFormData({...formData, department_id: e.target.value})}
+                  >
+                    <option value="" disabled className="bg-black text-white">-- Chọn Chi đoàn (chưa có tài khoản) --</option>
+                    {departments.filter(d => !d.user_id).map(d => (
+                      <option key={d.id} value={d.id} className="bg-black text-white">{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Email đăng nhập</label>
                 <input 

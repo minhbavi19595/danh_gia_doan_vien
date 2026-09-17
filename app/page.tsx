@@ -12,8 +12,12 @@ export default function Home() {
     if (!loading) {
       if (!user) {
         router.replace('/login');
+      } else if (role === 'department' || role === 'bi_thu_chi_doan') {
+        router.push('/department');
       } else if (role === 'admin') {
-        router.replace('/admin');
+        router.push('/admin');
+      } else if (role === 'bi_thu_doan') {
+        router.push('/admin/approvals');
       } else {
         router.replace('/department');
       }
