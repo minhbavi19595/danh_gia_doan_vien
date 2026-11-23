@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { Plus, Save, UserPlus, RefreshCw, X, FileDown, FileUp, Upload, Download, Zap } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 
 export default function DepartmentDashboard() {
   const { user } = useAuth();
@@ -230,7 +230,6 @@ export default function DepartmentDashboard() {
           score_5: ev.score_5 || 0,
           note: ev.note || ''
         };
-        if (ev.id) row.id = ev.id;
         return row;
       });
 
@@ -295,7 +294,7 @@ export default function DepartmentDashboard() {
     toast.info('Đã tải danh sách để chấm điểm!');
   };
 
-  const handleImportGradeFileProcess = (file: File) => {
+  const processExcelMembersAndScores = (file: File) => {
     if (!file) return;
 
     const reader = new FileReader();
@@ -305,397 +304,685 @@ export default function DepartmentDashboard() {
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as any[][];
 
-        let startRow = 0;
-        let nameCol = 0;
-        let titleCol = 1;
+        let headerRowIdx = -1;
+        let sttCol = -1;
+        let nameCol = -1;
+        let titleCol = -1;
+        let s1Col = -1;
+        let s2Col = -1;
+        let s3Col = -1;
+        let s4Col = -1;
+        let s5Col = -1;
+        let noteCol = -1;
 
-        for (let i = 0; i < Math.min(10, jsonData.length); i++) {
+        for (let i = 0; i < Math.min(15, jsonData.length); i++) {
           const row = jsonData[i] || [];
           for (let j = 0; j < row.length; j++) {
-            const cellVal = String(row[j] || '').toLowerCase();
+            const cellVal = String(row[j] || '').normalize('NFC').toLowerCase().trim();
             if (cellVal.includes('họ') && cellVal.includes('tên')) {
-              startRow = i + 1;
+              headerRowIdx = i;
               nameCol = j;
-              titleCol = nameCol + 1;
               break;
             }
           }
-          if (startRow > 0) break;
+          if (headerRowIdx >= 0) break;
         }
 
-        const s1Col = titleCol + 1;
-        const s2Col = titleCol + 2;
-        const s3Col = titleCol + 3;
-        const s4Col = titleCol + 4;
-        const s5Col = titleCol + 5;
-        const noteCol = titleCol + 6;
+        if (headerRowIdx < 0 || nameCol < 0) {
+          toast.error('Không tìm thấy cột "Họ và tên" trong file Excel.');
+          return;
+        }
+
+        const headerRow = jsonData[headerRowIdx] || [];
+        const subHeaderRow = jsonData[headerRowIdx + 1] || [];
+        let totalCol = -1;
+        const maxCols = Math.max(headerRow.length, subHeaderRow.length);
+
+        for (let j = 0; j < maxCols; j++) {
+          const h = String(headerRow[j] || '').normalize('NFC').toLowerCase().trim();
+          const h2 = String(subHeaderRow[j] || '').normalize('NFC').toLowerCase().trim();
+          if (h === 'stt' || h === 'tt') sttCol = j;
+          else if (h.includes('chức danh') || h.includes('chức vụ')) titleCol = j;
+          else if (h.includes('lý tưởng') || h === 'tc1') s1Col = j;
+          else if (h.includes('đạo đức') || h === 'tc2') s2Col = j;
+          else if (h.includes('chuyên môn') || h === 'tc3') s3Col = j;
+          else if (h.includes('sức khoẻ') || h.includes('sức khỏe') || h === 'tc4') s4Col = j;
+          else if (h.includes('ý thức') || h.includes('phong trào') || h === 'tc5') s5Col = j;
+          else if (h.includes('ghi chú')) noteCol = j;
+
+          if ((h.includes('tổng điểm') || h2.includes('tổng điểm')) && totalCol < 0) {
+            totalCol = j;
+          }
+        }
+
+        if (titleCol < 0) titleCol = nameCol + 1;
+        if (s1Col < 0) s1Col = titleCol + 1;
+        if (s2Col < 0) s2Col = titleCol + 2;
+        if (s3Col < 0) s3Col = titleCol + 3;
+        if (s4Col < 0) s4Col = titleCol + 4;
+        if (s5Col < 0) s5Col = titleCol + 5;
+        if (noteCol < 0) noteCol = titleCol + 6;
+
+        const parseNum = (v: any) => {
+          if (v === '' || v === null || v === undefined) return null;
+          const n = Number(v);
+          return isNaN(n) ? null : n;
+        };
+
+        const splitTotalTo5 = (total: number) => {
+          if (total === 89) return { s1: 20, s2: 20, s3: 19, s4: 10, s5: 20 };
+          const c1 = Math.min(20, total);
+          const c2 = Math.min(20, Math.max(0, total - c1));
+          const c3 = Math.min(20, Math.max(0, total - c1 - c2));
+          const c4 = Math.min(15, Math.max(0, total - c1 - c2 - c3));
+          const c5 = Math.max(0, total - c1 - c2 - c3 - c4);
+          return { s1: c1, s2: c2, s3: c3, s4: c4, s5: c5 };
+        };
+
+        const stopPrefixes = [
+          'tổng số',
+          'tổng:',
+          'nơi nhận',
+          'đảng uỷ',
+          'đảng ủy',
+          'lưu:',
+          'tm. bch',
+        ];
+
+        const skipPrefixes = [
+          'các chi đoàn',
+          'chi đoàn ',
+          'bch đoàn',
+          'hà nội,',
+          'quảng oai,',
+        ];
 
         const parsed: any[] = [];
-        for (let i = startRow; i < jsonData.length; i++) {
+        for (let i = headerRowIdx + 1; i < jsonData.length; i++) {
           const row = jsonData[i];
           if (!row) continue;
-          
-          const name = String(row[nameCol] || '').trim();
-          const title = String(row[titleCol] || '').trim();
 
-          if (!name) continue;
+          const firstCellLow = String(row[0] || '').normalize('NFC').trim().toLowerCase();
+          const rawName = String(row[nameCol] || '').normalize('NFC').trim();
+          const lowerName = rawName.toLowerCase();
 
-          const parseNum = (v: any) => { const n = Number(v); return isNaN(n) ? null : n; };
+          // Gặp dòng tổng kết hoặc phần chữ ký cuối bảng thì dừng đọc ngay
+          if (
+            stopPrefixes.some((p) => firstCellLow.startsWith(p) || lowerName.startsWith(p))
+          ) {
+            break;
+          }
+
+          if (!rawName) continue;
+
+          if (
+            lowerName.includes('họ và tên') ||
+            lowerName.includes('tổng điểm') ||
+            lowerName.includes('mức xếp loại') ||
+            skipPrefixes.some((p) => lowerName.startsWith(p))
+          ) {
+            continue;
+          }
+
+          const rawTitle = String(row[titleCol] || '').normalize('NFC').trim();
+          let s1 = parseNum(row[s1Col]);
+          let s2 = parseNum(row[s2Col]);
+          let s3 = parseNum(row[s3Col]);
+          let s4 = parseNum(row[s4Col]);
+          let s5 = parseNum(row[s5Col]);
+          let hasScores = s1 !== null || s2 !== null || s3 !== null || s4 !== null || s5 !== null;
+
+          // Nếu file chỉ điền cột Tổng điểm mà để trống 5 cột tiêu chí
+          if (!hasScores && totalCol >= 0) {
+            const totVal = parseNum(row[totalCol]);
+            if (totVal !== null && totVal >= 0) {
+              const sp = splitTotalTo5(Math.round(totVal));
+              s1 = sp.s1;
+              s2 = sp.s2;
+              s3 = sp.s3;
+              s4 = sp.s4;
+              s5 = sp.s5;
+              hasScores = true;
+            }
+          }
+
+          // Nếu dòng không có chức danh và cũng không có điểm -> bỏ qua (dòng tiêu đề nhóm / dòng trống)
+          if (!rawTitle && !hasScores) {
+            continue;
+          }
+
+          if (sttCol >= 0) {
+            const sttVal = parseNum(row[sttCol]);
+            if (sttVal === null && !rawTitle && !hasScores) {
+              continue;
+            }
+          }
 
           parsed.push({
-            full_name: name,
-            title: title || 'Đoàn viên',
-            score_1: parseNum(row[s1Col]),
-            score_2: parseNum(row[s2Col]),
-            score_3: parseNum(row[s3Col]),
-            score_4: parseNum(row[s4Col]),
-            score_5: parseNum(row[s5Col]),
-            note: String(row[noteCol] || '').trim(),
+            full_name: rawName,
+            title: rawTitle || 'Đoàn viên',
+            score_1: s1,
+            score_2: s2,
+            score_3: s3,
+            score_4: s4,
+            score_5: s5,
+            hasScores,
+            note: noteCol >= 0 ? String(row[noteCol] || '').trim() : '',
           });
         }
 
         if (parsed.length === 0) {
-          toast.error('Không tìm thấy dữ liệu hợp lệ trong file Excel. Đảm bảo file có cột Họ và tên, Chức danh.');
+          toast.error('Không tìm thấy dữ liệu đoàn viên hợp lệ trong file Excel.');
           return;
         }
 
         try {
           setLoading(true);
-          const normalizeName = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
-          const existingMembersMap = new Map<string, any>();
-          members.forEach(m => existingMembersMap.set(normalizeName(m.full_name), m));
+          const normalizeName = (s: string) =>
+            String(s || '')
+              .normalize('NFC')
+              .trim()
+              .replace(/\s+/g, ' ')
+              .toLowerCase();
 
-          // Tự động thêm/kéo những đoàn viên có trong file Excel nhưng chưa có trong danh sách chi đoàn hiện tại
+          const existingMembersMap = new Map<string, any>();
+          members.forEach((m) => existingMembersMap.set(normalizeName(m.full_name), m));
+
+          // 1. Phân loại tên mới (chưa có trong chi đoàn) để thêm mới, hoặc tên cũ đổi chức danh để cập nhật chức danh mới
           const missingMembers: { full_name: string; title: string }[] = [];
+          const titleUpdates: { id: string; title: string }[] = [];
           const seenMissing = new Set<string>();
-          parsed.forEach(item => {
+          const seenTitleUpdate = new Set<string>();
+
+          parsed.forEach((item) => {
             const nameKey = normalizeName(item.full_name);
-            if (nameKey && !existingMembersMap.has(nameKey) && !seenMissing.has(nameKey)) {
+            if (!nameKey) return;
+            const existing = existingMembersMap.get(nameKey);
+            if (!existing && !seenMissing.has(nameKey)) {
               seenMissing.add(nameKey);
               missingMembers.push({
-                full_name: item.full_name.trim(),
-                title: item.title || 'Đoàn viên'
+                full_name: item.full_name,
+                title: item.title || 'Đoàn viên',
               });
+            } else if (
+              existing &&
+              item.title &&
+              item.title !== existing.title &&
+              !seenTitleUpdate.has(existing.id)
+            ) {
+              seenTitleUpdate.add(existing.id);
+              titleUpdates.push({ id: existing.id, title: item.title });
             }
           });
 
-          let currentEvaluations = { ...evaluations };
           if (missingMembers.length > 0) {
-            const insertRows = missingMembers.map(item => ({
+            const insertRows = missingMembers.map((item) => ({
               department_id: departmentId,
               full_name: item.full_name,
-              title: item.title
+              title: item.title,
             }));
             const { error: insertErr } = await supabase.from('members').insert(insertRows);
             if (insertErr) throw insertErr;
-
-            // Tải lại danh sách đoàn viên và điểm sau khi trigger DB đã gộp lịch sử điểm từ chi đoàn cũ
-            const { data: refreshedMembers } = await supabase
-              .from('members')
-              .select('*')
-              .eq('department_id', departmentId)
-              .order('created_at', { ascending: true });
-
-            const updatedMembers = refreshedMembers || [];
-            setMembers(updatedMembers);
-            existingMembersMap.clear();
-            updatedMembers.forEach(m => existingMembersMap.set(normalizeName(m.full_name), m));
-
-            if (updatedMembers.length > 0) {
-              const { data: evalsData } = await supabase
-                .from('evaluations')
-                .select('*')
-                .in('member_id', updatedMembers.map(m => m.id))
-                .eq('year', currentYear)
-                .eq('month', currentMonth);
-              const evalsMap: Record<string, any> = {};
-              (evalsData || []).forEach(ev => {
-                evalsMap[ev.member_id] = ev;
-              });
-              currentEvaluations = evalsMap;
-            }
           }
 
-          const newEvals = { ...currentEvaluations };
-          let mappedCount = 0;
+          if (titleUpdates.length > 0) {
+            await Promise.all(
+              titleUpdates.map((u) =>
+                supabase.from('members').update({ title: u.title }).eq('id', u.id)
+              )
+            );
+          }
 
-          // Phân loại và điền điểm
-          const memberAdded = new Set();
-          parsed.forEach(item => {
+          // 2. Tải lại danh sách đoàn viên mới nhất của chi đoàn
+          const { data: refreshedMembers } = await supabase
+            .from('members')
+            .select('*')
+            .eq('department_id', departmentId)
+            .order('created_at', { ascending: true });
+
+          const updatedMembers = refreshedMembers || [];
+          setMembers(updatedMembers);
+          existingMembersMap.clear();
+          updatedMembers.forEach((m) => existingMembersMap.set(normalizeName(m.full_name), m));
+
+          // Tải lại evaluations hiện tại của tháng đang chọn
+          let currentEvaluations: Record<string, any> = {};
+          if (updatedMembers.length > 0) {
+            const { data: evalsData } = await supabase
+              .from('evaluations')
+              .select('*')
+              .in(
+                'member_id',
+                updatedMembers.map((m) => m.id)
+              )
+              .eq('year', currentYear)
+              .eq('month', currentMonth);
+            (evalsData || []).forEach((ev) => {
+              currentEvaluations[ev.member_id] = ev;
+            });
+          }
+
+          // 3. Map điểm theo tên cho cả thành viên mới và thành viên cũ
+          const newEvals = { ...currentEvaluations };
+          const upsertRows: any[] = [];
+          const memberProcessed = new Set<string>();
+          let scoredCount = 0;
+
+          parsed.forEach((item) => {
             const nameKey = normalizeName(item.full_name);
-            const existing = existingMembersMap.get(nameKey);
-            const hasScores = item.score_1 !== null || item.score_2 !== null || item.score_3 !== null || item.score_4 !== null || item.score_5 !== null;
-            
-            if (existing && hasScores) {
-               if (!memberAdded.has(existing.id)) {
-                 mappedCount++;
-                 const s1 = item.score_1 || 0;
-                 const s2 = item.score_2 || 0;
-                 const s3 = item.score_3 || 0;
-                 const s4 = item.score_4 || 0;
-                 const s5 = item.score_5 || 0;
-                 
-                 const existingEv = newEvals[existing.id] || {};
-                 
-                 newEvals[existing.id] = {
-                   ...existingEv,
-                   member_id: existing.id,
-                   score_1: s1,
-                   score_2: s2,
-                   score_3: s3,
-                   score_4: s4,
-                   score_5: s5,
-                   total_score: s1 + s2 + s3 + s4 + s5,
-                   note: item.note || existingEv.note || ''
-                 };
-                 memberAdded.add(existing.id);
-               }
+            const member = existingMembersMap.get(nameKey);
+            if (!member || memberProcessed.has(member.id)) return;
+            memberProcessed.add(member.id);
+
+            if (item.hasScores) {
+              scoredCount++;
+              const s1 = item.score_1 ?? 0;
+              const s2 = item.score_2 ?? 0;
+              const s3 = item.score_3 ?? 0;
+              const s4 = item.score_4 ?? 0;
+              const s5 = item.score_5 ?? 0;
+              const existingEv = newEvals[member.id] || {};
+              const noteVal = item.note || existingEv.note || '';
+
+              newEvals[member.id] = {
+                ...existingEv,
+                member_id: member.id,
+                department_id: departmentId,
+                year: currentYear,
+                month: currentMonth,
+                score_1: s1,
+                score_2: s2,
+                score_3: s3,
+                score_4: s4,
+                score_5: s5,
+                total_score: s1 + s2 + s3 + s4 + s5,
+                note: noteVal,
+              };
+
+              const rowToUpsert: any = {
+                member_id: member.id,
+                department_id: departmentId,
+                year: currentYear,
+                month: currentMonth,
+                score_1: s1,
+                score_2: s2,
+                score_3: s3,
+                score_4: s4,
+                score_5: s5,
+                note: noteVal,
+              };
+              upsertRows.push(rowToUpsert);
             }
           });
 
-          if (mappedCount > 0) {
-             setEvaluations(newEvals);
-             toast.success(`Đã tải điểm của ${mappedCount} đoàn viên lên bảng (Chưa lưu). Vui lòng kiểm tra và bấm "Lưu đánh giá" để hoàn tất!`);
-          } else {
-             toast.info('Không có dữ liệu điểm nào khớp với danh sách hiện tại.');
+          // 4. Lưu điểm vào DB luôn nếu trong file có điểm
+          if (upsertRows.length > 0) {
+            const { error: upsertErr } = await supabase
+              .from('evaluations')
+              .upsert(upsertRows, { onConflict: 'member_id, year, month' });
+            if (upsertErr) throw upsertErr;
           }
-          
-          setShowImportModal(false);
-          setLoading(false);
 
+          await fetchData();
+
+          const addedMsg =
+            missingMembers.length > 0 ? `thêm mới ${missingMembers.length} đoàn viên` : '';
+          const scoredMsg =
+            scoredCount > 0 ? `cập nhật & lưu điểm cho ${scoredCount} đoàn viên` : '';
+          const summaryMsg = [addedMsg, scoredMsg].filter(Boolean).join(', ');
+
+          toast.success(
+            summaryMsg
+              ? `Import thành công: Đã ${summaryMsg}!`
+              : 'File Excel không có đoàn viên mới hoặc điểm mới để cập nhật.'
+          );
+
+          setShowImportModal(false);
+          setShowMemberModal(false);
+          setLoading(false);
         } catch (err: any) {
-          toast.error('Lỗi import điểm: ' + err.message);
+          toast.error('Lỗi import dữ liệu: ' + err.message);
           setLoading(false);
         }
-
       } catch (err) {
         toast.error('Lỗi đọc file Excel. Vui lòng kiểm tra lại file.');
       }
     };
     reader.readAsArrayBuffer(file);
-    
+
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
+
+  const handleImportGradeFileProcess = (file: File) => {
+    processExcelMembersAndScores(file);
+  };
+
   const handleAddMemberFileProcess = (file: File) => {
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-
-        let startRow = 0;
-        let nameCol = 0;
-        let titleCol = 1;
-
-        for (let i = 0; i < Math.min(10, jsonData.length); i++) {
-          const row = jsonData[i] || [];
-          for (let j = 0; j < row.length; j++) {
-            const cellVal = String(row[j] || '').toLowerCase();
-            if (cellVal.includes('họ') && cellVal.includes('tên')) {
-              startRow = i + 1;
-              nameCol = j;
-              titleCol = nameCol + 1;
-              break;
-            }
-          }
-          if (startRow > 0) break;
-        }
-
-        const parsed: any[] = [];
-        for (let i = startRow; i < jsonData.length; i++) {
-          const row = jsonData[i];
-          if (!row) continue;
-          const name = String(row[nameCol] || '').trim();
-          const title = String(row[titleCol] || '').trim();
-          if (!name) continue;
-          parsed.push({ full_name: name, title: title || 'Đoàn viên' });
-        }
-
-        if (parsed.length === 0) {
-          toast.error('Không tìm thấy dữ liệu hợp lệ trong file Excel.');
-          return;
-        }
-
-        try {
-          setLoading(true);
-          const existingMembersMap = new Map();
-          members.forEach(m => existingMembersMap.set(m.full_name.trim().toLowerCase(), m));
-
-          const newMembersToInsert: any[] = [];
-          parsed.forEach(item => {
-            const nameKey = item.full_name.trim().toLowerCase();
-            if (!existingMembersMap.has(nameKey)) {
-              newMembersToInsert.push(item);
-              existingMembersMap.set(nameKey, true); // Prevent duplicates within the file itself
-            }
-          });
-
-          if (newMembersToInsert.length > 0) {
-            const insertData = newMembersToInsert.map(item => ({
-              department_id: departmentId,
-              full_name: item.full_name,
-              title: item.title
-            }));
-            const { error } = await supabase.from('members').insert(insertData);
-            if (error) throw error;
-          }
-
-          toast.success(`Đã thêm mới thành công ${newMembersToInsert.length} đoàn viên!`);
-          setShowMemberModal(false);
-          fetchData();
-        } catch (err: any) {
-          toast.error('Lỗi thêm đoàn viên: ' + err.message);
-          setLoading(false);
-        }
-
-      } catch (err) {
-        toast.error('Lỗi đọc file Excel.');
-      }
-    };
-    reader.readAsArrayBuffer(file);
+    processExcelMembersAndScores(file);
   };
 
   // ============ EXPORT EXCEL ============
   const exportExcel = () => {
     try {
       const wb = XLSX.utils.book_new();
-      
-      // Build data rows
       const rows: any[][] = [];
-      
-      // Header rows (matching template)
-      rows.push([]); // row 0 - empty
-      rows.push([]); // row 1 - empty
-      rows.push(['ĐOÀN XÃ QUẢNG OAI', '', '', '', '', '', '', 'ĐOÀN TNCS HỒ CHÍ MINH']);
-      rows.push([`ĐOÀN THANH NIÊN TRUNG TÂM CHĂM SÓC VÀ PHỤC HỒI CHỨC NĂNG NGƯỜI TÂM THẦN SỐ 1\n***`]);
-      rows.push(['DANH SÁCH TỔNG HỢP ']);
-      rows.push(['KẾT QUẢ ĐÁNH GIÁ, XẾP LOẠI ĐOÀN VIÊN']);
-      rows.push([`Tháng ${currentMonth} năm ${currentYear}\n------`]);
-      rows.push([]); // empty row
-      
-      // Table header row 1
+      const merges: any[] = [];
+      const rowHeights: any[] = [];
+
+      const emptyRow = () => Array(13).fill('');
+      const thinBorder = {
+        top: { style: 'thin', color: { rgb: '000000' } },
+        bottom: { style: 'thin', color: { rgb: '000000' } },
+        left: { style: 'thin', color: { rgb: '000000' } },
+        right: { style: 'thin', color: { rgb: '000000' } },
+      };
+      const baseFont = { name: 'Times New Roman', sz: 12 };
+
+      // Row 0-1: blank spacing
+      rows.push(emptyRow());
+      rowHeights.push({ hpt: 10 });
+      rows.push(emptyRow());
+      rowHeights.push({ hpt: 10 });
+
+      // Row 2: Tổ chức cấp trên & Quốc hiệu Đoàn
+      const r2 = emptyRow();
+      r2[0] = 'ĐOÀN XÃ QUẢNG OAI';
+      r2[7] = 'ĐOÀN TNCS HỒ CHÍ MINH';
+      rows.push(r2);
+      rowHeights.push({ hpt: 22 });
+      merges.push({ s: { r: 2, c: 0 }, e: { r: 2, c: 6 } });
+      merges.push({ s: { r: 2, c: 7 }, e: { r: 2, c: 12 } });
+
+      // Row 3: Đơn vị & Tên Chi đoàn
+      const deptTitle = (departmentName || 'CHI ĐOÀN').toUpperCase();
+      const r3 = emptyRow();
+      r3[0] = `ĐOÀN THANH NIÊN TRUNG TÂM CHĂM SÓC VÀ PHỤC HỒI CHỨC NĂNG NGƯỜI TÂM THẦN SỐ 1\n${deptTitle}\n***`;
+      rows.push(r3);
+      rowHeights.push({ hpt: 64 });
+      merges.push({ s: { r: 3, c: 0 }, e: { r: 3, c: 6 } });
+
+      // Row 4-6: Tiêu đề báo cáo
+      const r4 = emptyRow();
+      r4[0] = `DANH SÁCH TỔNG HỢP - ${deptTitle}`;
+      rows.push(r4);
+      rowHeights.push({ hpt: 22 });
+      merges.push({ s: { r: 4, c: 0 }, e: { r: 4, c: 12 } });
+
+      const r5 = emptyRow();
+      r5[0] = 'KẾT QUẢ ĐÁNH GIÁ, XẾP LOẠI ĐOÀN VIÊN';
+      rows.push(r5);
+      rowHeights.push({ hpt: 22 });
+      merges.push({ s: { r: 5, c: 0 }, e: { r: 5, c: 12 } });
+
+      const r6 = emptyRow();
+      r6[0] = `Tháng ${currentMonth} năm ${currentYear}\n------`;
+      rows.push(r6);
+      rowHeights.push({ hpt: 34 });
+      merges.push({ s: { r: 6, c: 0 }, e: { r: 6, c: 12 } });
+
+      // Row 7: blank
+      rows.push(emptyRow());
+      rowHeights.push({ hpt: 10 });
+
+      // Row 8-9: Header 2 dòng
       rows.push([
-        'STT', 'Họ và tên', 'Chức danh',
+        'STT',
+        'Họ và tên',
+        'Chức danh',
         'Lý tưởng cách mạng, nhận thức chính trị',
         'Đạo đức, lối sống, tác phong đoàn viên',
         'Công tác chuyên môn nghiệp vụ',
         'Rèn luyện sức khoẻ',
         'Ý thức xây dựng tổ chức đoàn, tham gia phong trào đoàn',
-        `Chi đoàn \nđánh giá`, '',
-        'Ghi chú'
+        'Chi đoàn\nđánh giá',
+        '',
+        'BCH Đoàn Trung tâm đánh giá',
+        '',
+        'Ghi chú',
       ]);
-      
-      // Table header row 2
+      rowHeights.push({ hpt: 36 });
+
       rows.push([
         '', '', '', '', '', '', '', '',
-        'Tổng điểm', 'Mức xếp loại',
-        ''
+        'Tổng điểm',
+        'Mức xếp loại',
+        'Tổng điểm',
+        'Mức xếp loại',
+        '',
       ]);
+      rowHeights.push({ hpt: 62 });
 
-      // Department name row
-      rows.push([departmentName.toUpperCase()]);
+      for (let c = 0; c <= 7; c++) {
+        merges.push({ s: { r: 8, c }, e: { r: 9, c } });
+      }
+      merges.push({ s: { r: 8, c: 8 }, e: { r: 8, c: 9 } });
+      merges.push({ s: { r: 8, c: 10 }, e: { r: 8, c: 11 } });
+      merges.push({ s: { r: 8, c: 12 }, e: { r: 9, c: 12 } });
 
-      // Data rows
+      // Row 10: Tên chi đoàn
+      const deptRowIdx = rows.length;
+      const deptRow = emptyRow();
+      deptRow[0] = departmentName.toUpperCase();
+      rows.push(deptRow);
+      rowHeights.push({ hpt: 26 });
+      merges.push({ s: { r: deptRowIdx, c: 0 }, e: { r: deptRowIdx, c: 12 } });
+
+      // Dòng dữ liệu đoàn viên
+      const dataRowIndices: number[] = [];
       let countA = 0, countB = 0, countC = 0, countD = 0;
+
       members.forEach((member, index) => {
         const ev = evaluations[member.id] || {};
-        const total = ev.total_score ?? 0;
-        const hasEval = ev.id || ev.total_score !== undefined;
-        const rank = hasEval ? getRank(total) : { text: '', class: '' };
-        
-        if (hasEval && total > 0) {
-          if (total >= 90) countA++;
-          else if (total >= 70) countB++;
-          else if (total >= 50) countC++;
+        const hasEval = Boolean(ev.id || ev.total_score !== undefined);
+        const isRejected = ev.status === 'rejected';
+        const isApproved = ev.status === 'approved';
+
+        const cdTotal = hasEval ? (ev.total_score ?? '') : '';
+        const cdRank = hasEval ? getRank(ev.total_score).text : '';
+
+        const bchScore = isRejected ? ev.bch_total_score : isApproved ? ev.total_score : null;
+        const bchTotal = hasEval && bchScore != null ? bchScore : '';
+        const bchRank = hasEval && bchScore != null ? getRank(bchScore).text : '';
+
+        const finalScore = isRejected ? ev.bch_total_score : ev.total_score;
+        if (hasEval && finalScore != null) {
+          if (finalScore >= 90) countA++;
+          else if (finalScore >= 70) countB++;
+          else if (finalScore >= 50) countC++;
           else countD++;
         }
+
+        const note = isRejected ? (ev.bch_note || ev.note || '') : (ev.note || '');
+        const rowIdx = rows.length;
+        dataRowIndices.push(rowIdx);
+
+        const noteLines = Math.max(1, Math.ceil(String(note).length / 26));
+        const nameLines = Math.max(1, Math.ceil(String(member.full_name || '').length / 22));
+        const maxLines = Math.max(noteLines, nameLines);
+        rowHeights.push({ hpt: Math.max(24, maxLines * 16 + 8) });
 
         rows.push([
           index + 1,
           member.full_name,
           member.title,
-          hasEval ? (ev.score_1 || 0) : '',
-          hasEval ? (ev.score_2 || 0) : '',
-          hasEval ? (ev.score_3 || 0) : '',
-          hasEval ? (ev.score_4 || 0) : '',
-          hasEval ? (ev.score_5 || 0) : '',
-          hasEval ? total : '',
-          rank.text,
-          ev.note || ''
+          hasEval ? (ev.score_1 ?? '') : '',
+          hasEval ? (ev.score_2 ?? '') : '',
+          hasEval ? (ev.score_3 ?? '') : '',
+          hasEval ? (ev.score_4 ?? '') : '',
+          hasEval ? (ev.score_5 ?? '') : '',
+          cdTotal,
+          cdRank,
+          bchTotal,
+          bchRank,
+          note,
         ]);
       });
 
-      // Summary row
-      rows.push([]);
-      rows.push([`Tổng số: ${members.length} đoàn viên. Trong đó: Xếp loại A: ${countA}; Xếp loại B: ${countB}; Xếp loại C: ${countC};  Xếp loại D: ${countD}`]);
-      
-      // Footer
-      const now = new Date();
-      rows.push(['', '', '', '', '', '', '', '', '', `Hà Nội, ngày ${now.getDate()} tháng ${now.getMonth() + 1} năm ${now.getFullYear()}`]);
-      rows.push([]);
-      rows.push(['Nơi nhận', '', '', '', '', '', '', '', '', 'TM. BCH ĐOÀN']);
-      rows.push(['Đảng uỷ (để báo cáo);', '', '', '', '', '', '', '', '', ' BÍ THƯ']);
-      rows.push(['Các chi đoàn;']);
-      rows.push(['Lưu: VP đoàn./.']);
-      rows.push([]);
-      rows.push(['', '', '', '', '', '', '', '', '', 'Nguyễn Thị Diệu Linh']);
+      // Dòng tổng kết
+      const summaryIdx = rows.length;
+      const summaryRow = emptyRow();
+      summaryRow[0] = `Tổng số: ${members.length} đoàn viên. Trong đó: Xếp loại A: ${countA}; Xếp loại B: ${countB}; Xếp loại C: ${countC}; Xếp loại D: ${countD}`;
+      rows.push(summaryRow);
+      rowHeights.push({ hpt: 24 });
+      merges.push({ s: { r: summaryIdx, c: 0 }, e: { r: summaryIdx, c: 12 } });
+
+      // Chân trang: Nơi nhận & Chữ ký
+      const today = new Date();
+      const dateIdx = rows.length;
+      const dateRow = emptyRow();
+      dateRow[9] = `Hà Nội, ngày ${today.getDate()} tháng ${today.getMonth() + 1} năm ${today.getFullYear()}`;
+      rows.push(dateRow);
+      rowHeights.push({ hpt: 22 });
+      merges.push({ s: { r: dateIdx, c: 9 }, e: { r: dateIdx, c: 12 } });
+
+      rows.push(emptyRow());
+      rowHeights.push({ hpt: 12 });
+
+      const signHeaderIdx = rows.length;
+      const signHeaderRow = emptyRow();
+      signHeaderRow[0] = 'Nơi nhận';
+      signHeaderRow[9] = 'TM. BCH CHI ĐOÀN';
+      rows.push(signHeaderRow);
+      rowHeights.push({ hpt: 22 });
+      merges.push({ s: { r: signHeaderIdx, c: 9 }, e: { r: signHeaderIdx, c: 12 } });
+
+      const signRoleIdx = rows.length;
+      const signRoleRow = emptyRow();
+      signRoleRow[0] = 'BCH Đoàn TT (để báo cáo);';
+      signRoleRow[9] = 'BÍ THƯ';
+      rows.push(signRoleRow);
+      rowHeights.push({ hpt: 22 });
+      merges.push({ s: { r: signRoleIdx, c: 0 }, e: { r: signRoleIdx, c: 8 } });
+      merges.push({ s: { r: signRoleIdx, c: 9 }, e: { r: signRoleIdx, c: 12 } });
+
+      const saveIdx = rows.length;
+      const saveRow = emptyRow();
+      saveRow[0] = 'Lưu: Chi đoàn./.';
+      rows.push(saveRow);
+      rowHeights.push({ hpt: 20 });
+      merges.push({ s: { r: saveIdx, c: 0 }, e: { r: saveIdx, c: 8 } });
 
       const ws = XLSX.utils.aoa_to_sheet(rows);
-
-      // Set column widths
+      ws['!merges'] = merges;
+      ws['!rows'] = rowHeights;
       ws['!cols'] = [
-        { wch: 5 },   // STT
-        { wch: 28 },  // Họ và tên
-        { wch: 15 },  // Chức danh
-        { wch: 12 },  // TC1
-        { wch: 12 },  // TC2
-        { wch: 12 },  // TC3
-        { wch: 10 },  // TC4
-        { wch: 12 },  // TC5
-        { wch: 10 },  // Tổng điểm CĐ
-        { wch: 12 },  // Xếp loại CĐ
-        { wch: 10 },  // Tổng điểm BCH
-        { wch: 12 },  // Xếp loại BCH
-        { wch: 40 },  // Ghi chú
+        { wch: 5 },
+        { wch: 24 },
+        { wch: 13 },
+        { wch: 11 },
+        { wch: 11 },
+        { wch: 11 },
+        { wch: 9 },
+        { wch: 13 },
+        { wch: 11 },
+        { wch: 13 },
+        { wch: 11 },
+        { wch: 13 },
+        { wch: 30 },
       ];
 
-      // Merge cells for headers
-      ws['!merges'] = [
-        // Header organization names
-        { s: { r: 2, c: 0 }, e: { r: 2, c: 6 } },
-        { s: { r: 2, c: 7 }, e: { r: 2, c: 12 } },
-        { s: { r: 3, c: 0 }, e: { r: 3, c: 12 } },
-        { s: { r: 4, c: 0 }, e: { r: 4, c: 12 } },
-        { s: { r: 5, c: 0 }, e: { r: 5, c: 12 } },
-        { s: { r: 6, c: 0 }, e: { r: 6, c: 12 } },
-        // Table header merges - STT, Họ tên, Chức danh span 2 rows
-        { s: { r: 8, c: 0 }, e: { r: 9, c: 0 } },
-        { s: { r: 8, c: 1 }, e: { r: 9, c: 1 } },
-        { s: { r: 8, c: 2 }, e: { r: 9, c: 2 } },
-        // Score columns span 2 rows each
-        { s: { r: 8, c: 3 }, e: { r: 9, c: 3 } },
-        { s: { r: 8, c: 4 }, e: { r: 9, c: 4 } },
-        { s: { r: 8, c: 5 }, e: { r: 9, c: 5 } },
-        { s: { r: 8, c: 6 }, e: { r: 9, c: 6 } },
-        { s: { r: 8, c: 7 }, e: { r: 9, c: 7 } },
-        // Chi đoàn đánh giá: 2 cols
-        { s: { r: 8, c: 8 }, e: { r: 8, c: 9 } },
-        // BCH Đoàn TT: 2 cols
-        { s: { r: 8, c: 10 }, e: { r: 8, c: 11 } },
-        // Ghi chú span 2 rows
-        { s: { r: 8, c: 12 }, e: { r: 9, c: 12 } },
-        // Department name row
-        { s: { r: 10, c: 0 }, e: { r: 10, c: 12 } },
-      ];
+      const setStyle = (r: number, c: number, style: any) => {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+        ws[addr].s = style;
+      };
 
-      XLSX.utils.book_append_sheet(wb, ws, 'Đánh giá');
+      // Style tiêu đề đầu trang
+      setStyle(2, 0, {
+        font: { ...baseFont, sz: 13 },
+        alignment: { horizontal: 'center', vertical: 'center' },
+      });
+      setStyle(2, 7, {
+        font: { ...baseFont, sz: 13, bold: true, underline: true },
+        alignment: { horizontal: 'center', vertical: 'center' },
+      });
+      setStyle(3, 0, {
+        font: { ...baseFont, sz: 13, bold: true },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      });
+      setStyle(4, 0, {
+        font: { ...baseFont, sz: 14, bold: true },
+        alignment: { horizontal: 'center', vertical: 'center' },
+      });
+      setStyle(5, 0, {
+        font: { ...baseFont, sz: 14, bold: true },
+        alignment: { horizontal: 'center', vertical: 'center' },
+      });
+      setStyle(6, 0, {
+        font: { ...baseFont, sz: 13, bold: true },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      });
+
+      // Style header bảng (row 8 & 9)
+      for (let r = 8; r <= 9; r++) {
+        for (let c = 0; c <= 12; c++) {
+          setStyle(r, c, {
+            font: { ...baseFont, sz: 11, bold: true },
+            alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+            border: thinBorder,
+          });
+        }
+      }
+
+      // Style dòng tên Chi đoàn
+      for (let c = 0; c <= 12; c++) {
+        setStyle(deptRowIdx, c, {
+          font: { ...baseFont, sz: 11, bold: true },
+          alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
+          border: thinBorder,
+        });
+      }
+
+      // Style dòng dữ liệu đoàn viên
+      dataRowIndices.forEach((r) => {
+        for (let c = 0; c <= 12; c++) {
+          const isBoldCol = c === 8 || c === 10;
+          const isLeftCol = c === 1 || c === 12;
+          setStyle(r, c, {
+            font: { ...baseFont, sz: 11, bold: isBoldCol },
+            alignment: {
+              horizontal: isLeftCol ? 'left' : 'center',
+              vertical: 'center',
+              wrapText: true,
+            },
+            border: thinBorder,
+          });
+        }
+      });
+
+      // Style dòng tổng hợp & chân trang
+      setStyle(summaryIdx, 0, {
+        font: { ...baseFont, sz: 11, bold: true, italic: true },
+        alignment: { horizontal: 'left', vertical: 'center' },
+      });
+      setStyle(dateIdx, 9, {
+        font: { ...baseFont, sz: 11, italic: true },
+        alignment: { horizontal: 'center', vertical: 'center' },
+      });
+      setStyle(signHeaderIdx, 0, {
+        font: { ...baseFont, sz: 11, bold: true, italic: true },
+        alignment: { horizontal: 'left', vertical: 'center' },
+      });
+      setStyle(signHeaderIdx, 9, {
+        font: { ...baseFont, sz: 11, bold: true },
+        alignment: { horizontal: 'center', vertical: 'center' },
+      });
+      setStyle(signRoleIdx, 0, {
+        font: { ...baseFont, sz: 11 },
+        alignment: { horizontal: 'left', vertical: 'center' },
+      });
+      setStyle(signRoleIdx, 9, {
+        font: { ...baseFont, sz: 11, bold: true },
+        alignment: { horizontal: 'center', vertical: 'center' },
+      });
+      setStyle(saveIdx, 0, {
+        font: { ...baseFont, sz: 11 },
+        alignment: { horizontal: 'left', vertical: 'center' },
+      });
+
+      XLSX.utils.book_append_sheet(wb, ws, 'mẫu phòng');
       XLSX.writeFile(wb, `Đánh giá đoàn viên ${departmentName} - T${currentMonth}.${currentYear}.xlsx`);
       toast.success('Xuất file Excel thành công!');
     } catch (err: any) {
@@ -753,7 +1040,7 @@ export default function DepartmentDashboard() {
                 }
               }}
             >
-              {Array.from({ length: new Date().getFullYear() - 2026 + 1 }, (_, i) => new Date().getFullYear() - i).map(y => (
+              {Array.from({ length: new Date().getFullYear() - 2024 + 1 }, (_, i) => new Date().getFullYear() - i).map(y => (
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>

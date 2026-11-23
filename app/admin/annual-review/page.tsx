@@ -276,7 +276,7 @@ export default function AnnualReviewPage() {
     headerTop[2] = 'Chức danh';
     headerTop[3] = 'ĐIỂM BÌNH XÉT';
     headerTop[15] = 'Trung bình';
-    headerTop[16] = 'CĐ đánh giá';
+    headerTop[16] = 'Đánh giá';
     rows.push(headerTop);
     rowHeights.push({ hpt: 24 });
 
@@ -573,7 +573,7 @@ export default function AnnualReviewPage() {
                   Trung bình
                 </th>
                 <th rowSpan={2} className="table-th text-center w-28 text-xs">
-                  CĐ đánh giá
+                  Đánh giá
                 </th>
               </tr>
               <tr>

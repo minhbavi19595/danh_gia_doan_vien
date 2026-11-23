@@ -120,7 +120,8 @@ export default function ApprovalsPage() {
   };
 
   const handleApproveAll = async () => {
-    if (!confirm('Bạn có chắc chắn muốn duyệt TẤT CẢ các đánh giá đang chờ duyệt trong tháng này?')) return;
+    const confirmed = await toast.confirm('Bạn có chắc chắn muốn duyệt TẤT CẢ các đánh giá đang chờ duyệt trong tháng này?');
+    if (!confirmed) return;
     
     try {
       const pendingEvalIds = Object.values(evaluations)
@@ -518,7 +519,7 @@ export default function ApprovalsPage() {
                 }
               }}
             >
-              {Array.from({ length: new Date().getFullYear() - 2026 + 1 }, (_, i) => new Date().getFullYear() - i).map(y => (
+              {Array.from({ length: new Date().getFullYear() - 2024 + 1 }, (_, i) => new Date().getFullYear() - i).map(y => (
                 <option key={y} value={y}>Năm {y}</option>
               ))}
             </select>

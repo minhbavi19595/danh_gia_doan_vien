@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Plus, Key, X, Eye, EyeOff, Lock, Unlock, ShieldCheck, ShieldOff } from 'lucide-react';
+import { Plus, Key, X, Eye, EyeOff, Lock, Unlock, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
 
 export default function Departments() {
@@ -120,6 +120,25 @@ export default function Departments() {
     }
   };
 
+  const handleDeleteUser = async (user: any) => {
+    const confirmed = await toast.confirm(
+      `Bạn có chắc chắn muốn xóa tài khoản "${user.email}"?\n(Chi đoàn và danh sách đoàn viên vẫn được giữ nguyên)`
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.rpc('admin_delete_user', {
+        target_user_id: user.id,
+      });
+
+      if (error) throw error;
+      toast.success(`Đã xóa tài khoản "${user.email}"`);
+      fetchDepartments();
+    } catch (err: any) {
+      toast.error('Lỗi khi xóa tài khoản: ' + (err.message || 'Không xác định'));
+    }
+  };
+
   const isBanned = (user: any) => {
     return user.banned_until && new Date(user.banned_until) > new Date();
   };
@@ -203,6 +222,13 @@ export default function Departments() {
                           }}
                         >
                           <Key size={18} />
+                        </button>
+                        <button
+                          className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                          title="Xóa tài khoản"
+                          onClick={() => handleDeleteUser(user)}
+                        >
+                          <Trash2 size={18} />
                         </button>
                       </div>
                     </td>
@@ -308,7 +334,7 @@ export default function Departments() {
               </button>
             </div>
             <form onSubmit={handleUpdatePassword} className="space-y-4">
-              <p className="text-slate-400">Đổi mật khẩu cho: <strong className="text-white">{selectedDept.name}</strong></p>
+              <p className="text-slate-400">Đổi mật khẩu cho: <strong className="text-white">{selectedDept.email}</strong></p>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Mật khẩu mới</label>
                 <div className="relative">

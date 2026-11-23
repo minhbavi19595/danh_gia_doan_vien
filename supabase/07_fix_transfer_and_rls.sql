@@ -26,6 +26,12 @@ WITH CHECK (
   department_id IN (SELECT id FROM public.departments WHERE user_id = auth.uid())
 );
 
+DROP POLICY IF EXISTS "Bi thu doan can insert and update members" ON public.members;
+CREATE POLICY "Bi thu doan can insert and update members"
+ON public.members FOR ALL
+USING (public.is_bi_thu_doan())
+WITH CHECK (public.is_bi_thu_doan());
+
 -- 2. RPC chuyển sinh hoạt đoàn viên sang chi đoàn mới, đồng thời chuyển toàn bộ dữ liệu chấm (evaluations) theo
 CREATE OR REPLACE FUNCTION public.transfer_member(
   p_member_id uuid,
@@ -202,3 +208,60 @@ BEGIN
   END LOOP;
 END;
 $$;
+
+-- 6. RPC cho Admin xóa tài khoản (giữ nguyên Chi đoàn & đoàn viên, chỉ gỡ liên kết user_id và xóa user)
+CREATE OR REPLACE FUNCTION public.admin_delete_user(
+  target_user_id uuid
+) RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'Unauthorized';
+  END IF;
+
+  IF target_user_id = auth.uid() THEN
+    RAISE EXCEPTION 'Không thể tự xóa tài khoản Admin đang đăng nhập';
+  END IF;
+
+  -- Gỡ tài khoản khỏi chi đoàn trước để tránh ON DELETE CASCADE xóa mất chi đoàn
+  UPDATE public.departments
+  SET user_id = NULL
+  WHERE user_id = target_user_id;
+
+  DELETE FROM auth.identities WHERE user_id = target_user_id;
+  DELETE FROM auth.users WHERE id = target_user_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_delete_user(uuid) TO authenticated;
+
+-- 7. RPC cho Admin xóa Chi đoàn (xóa evaluations và members thuộc chi đoàn đó, sau đó xóa chi đoàn)
+CREATE OR REPLACE FUNCTION public.admin_delete_department(
+  target_department_id uuid
+) RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'Unauthorized';
+  END IF;
+
+  DELETE FROM public.evaluations
+  WHERE department_id = target_department_id
+     OR member_id IN (SELECT id FROM public.members WHERE department_id = target_department_id);
+
+  DELETE FROM public.members
+  WHERE department_id = target_department_id;
+
+  DELETE FROM public.departments
+  WHERE id = target_department_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_delete_department(uuid) TO authenticated;
+

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Plus, Edit2, X } from 'lucide-react';
+import { Plus, Edit2, Trash2, X } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
 import DashboardLayout from '@/components/DashboardLayout';
 
@@ -82,6 +82,25 @@ export default function ChiDoanList() {
     }
   };
 
+  const handleDelete = async (dept: any) => {
+    const confirmed = await toast.confirm(
+      `Bạn có chắc chắn muốn xóa chi đoàn "${dept.name}"?\nToàn bộ đoàn viên và dữ liệu đánh giá của chi đoàn này sẽ bị xóa vĩnh viễn.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.rpc('admin_delete_department', {
+        target_department_id: dept.id,
+      });
+
+      if (error) throw error;
+      toast.success(`Đã xóa chi đoàn "${dept.name}"`);
+      fetchDepartments();
+    } catch (err: any) {
+      toast.error('Lỗi khi xóa chi đoàn: ' + (err.message || 'Không xác định'));
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -118,16 +137,25 @@ export default function ChiDoanList() {
                     <td className="table-td font-medium text-white">{dept.name}</td>
                     <td className="table-td">{new Date(dept.created_at).toLocaleDateString('vi-VN')}</td>
                     <td className="table-td text-right">
-                      <button 
-                        className="p-2 text-slate-400 hover:text-blue-400 transition-colors"
-                        title="Đổi tên"
-                        onClick={() => {
-                          setEditFormData({ id: dept.id, name: dept.name });
-                          setShowEditModal(true);
-                        }}
-                      >
-                        <Edit2 size={18} />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        <button 
+                          className="p-2 text-slate-400 hover:text-blue-400 transition-colors"
+                          title="Đổi tên"
+                          onClick={() => {
+                            setEditFormData({ id: dept.id, name: dept.name });
+                            setShowEditModal(true);
+                          }}
+                        >
+                          <Edit2 size={18} />
+                        </button>
+                        <button
+                          className="p-2 text-slate-400 hover:text-red-400 transition-colors"
+                          title="Xóa Chi đoàn"
+                          onClick={() => handleDelete(dept)}
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

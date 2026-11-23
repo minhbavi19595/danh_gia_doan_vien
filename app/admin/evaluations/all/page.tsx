@@ -200,7 +200,7 @@ export default function AllDepartmentsDetail() {
                 }
               }}
             >
-              {Array.from({ length: new Date().getFullYear() - 2026 + 1 }, (_, i) => new Date().getFullYear() - i).map(y => (
+              {Array.from({ length: new Date().getFullYear() - 2024 + 1 }, (_, i) => new Date().getFullYear() - i).map(y => (
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>
