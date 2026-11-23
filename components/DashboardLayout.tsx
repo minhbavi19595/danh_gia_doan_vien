@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, LayoutDashboard, Users } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, Award } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -72,6 +72,15 @@ export default function DashboardLayout({
               >
                 <Users size={18} />
                 Duyệt điểm
+              </Link>
+            )}
+            {(role === 'admin' || role === 'bi_thu_doan') && (
+              <Link 
+                href="/admin/annual-review" 
+                className={`flex items-center gap-2 text-sm font-medium transition-colors ${pathname.includes('/annual-review') ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                <Award size={18} />
+                Bình xét cuối năm
               </Link>
             )}
           </div>

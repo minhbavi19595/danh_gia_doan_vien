@@ -19,7 +19,7 @@ export default function Home() {
       } else if (role === 'bi_thu_doan') {
         router.push('/admin/approvals');
       } else {
-        router.replace('/department');
+        router.replace('/login');
       }
     }
   }, [user, role, loading, router]);

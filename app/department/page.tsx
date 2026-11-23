@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
-import { Plus, Save, UserPlus, RefreshCw, X, FileDown, FileUp, Upload, Download } from 'lucide-react';
+import { Plus, Save, UserPlus, RefreshCw, X, FileDown, FileUp, Upload, Download, Zap } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 export default function DepartmentDashboard() {
@@ -44,10 +44,10 @@ export default function DepartmentDashboard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (user) {
+    if (user?.id) {
       fetchDepartmentInfo();
     }
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     if (departmentId) {
@@ -98,6 +98,8 @@ export default function DepartmentDashboard() {
           evalsMap[ev.member_id] = ev;
         });
         setEvaluations(evalsMap);
+      } else {
+        setEvaluations({});
       }
     } catch (err) {
       console.error(err);
@@ -109,20 +111,19 @@ export default function DepartmentDashboard() {
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('members')
         .insert([{
           department_id: departmentId,
-          full_name: memberForm.full_name,
-          title: memberForm.title
-        }])
-        .select();
+          full_name: memberForm.full_name.trim(),
+          title: memberForm.title.trim() || 'Đoàn viên'
+        }]);
       
       if (error) throw error;
-      setMembers([...members, data[0]]);
       setShowMemberModal(false);
       setMemberForm({ full_name: '', title: '' });
-      toast.success('Thêm đoàn viên thành công!');
+      toast.success('Thêm đoàn viên thành công (tự động đồng bộ lịch sử điểm nếu chuyển từ chi đoàn khác)!');
+      fetchData();
     } catch (err: any) {
       toast.error('Lỗi: ' + err.message);
     }
@@ -156,14 +157,16 @@ export default function DepartmentDashboard() {
     }
     
     try {
-      const { error } = await supabase
-        .from('members')
-        .update({ department_id: targetDepartmentId })
-        .eq('id', transferMemberId);
+      const { error } = await supabase.rpc('transfer_member', {
+        p_member_id: transferMemberId,
+        p_target_department_id: targetDepartmentId
+      });
         
       if (error) throw error;
       toast.success('Đã chuyển sinh hoạt đoàn thành công!');
       setShowTransferModal(false);
+      setTransferMemberId('');
+      setTargetDepartmentId('');
       fetchData();
     } catch (err: any) {
       toast.error('Lỗi: ' + err.message);
@@ -183,6 +186,32 @@ export default function DepartmentDashboard() {
       }
       return { ...prev, [memberId]: updated };
     });
+  };
+
+  const handleQuickFillScores = () => {
+    if (members.length === 0) {
+      toast.info('Chi đoàn chưa có đoàn viên nào!');
+      return;
+    }
+
+    setEvaluations(prev => {
+      const next = { ...prev };
+      members.forEach(member => {
+        const current = next[member.id] || { note: '' };
+        next[member.id] = {
+          ...current,
+          score_1: 20,
+          score_2: 20,
+          score_3: 19,
+          score_4: 10,
+          score_5: 20,
+          total_score: 89,
+        };
+      });
+      return next;
+    });
+
+    toast.success('Đã điền nhanh điểm (20 - 20 - 19 - 10 - 20) cho toàn bộ đoàn viên. Bấm "Lưu đánh giá" để lưu!');
   };
 
   const saveEvaluations = async () => {
@@ -334,16 +363,68 @@ export default function DepartmentDashboard() {
 
         try {
           setLoading(true);
-          const existingMembersMap = new Map();
-          members.forEach(m => existingMembersMap.set(m.full_name.trim().toLowerCase(), m));
+          const normalizeName = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+          const existingMembersMap = new Map<string, any>();
+          members.forEach(m => existingMembersMap.set(normalizeName(m.full_name), m));
 
-          const newEvals = { ...evaluations };
+          // Tự động thêm/kéo những đoàn viên có trong file Excel nhưng chưa có trong danh sách chi đoàn hiện tại
+          const missingMembers: { full_name: string; title: string }[] = [];
+          const seenMissing = new Set<string>();
+          parsed.forEach(item => {
+            const nameKey = normalizeName(item.full_name);
+            if (nameKey && !existingMembersMap.has(nameKey) && !seenMissing.has(nameKey)) {
+              seenMissing.add(nameKey);
+              missingMembers.push({
+                full_name: item.full_name.trim(),
+                title: item.title || 'Đoàn viên'
+              });
+            }
+          });
+
+          let currentEvaluations = { ...evaluations };
+          if (missingMembers.length > 0) {
+            const insertRows = missingMembers.map(item => ({
+              department_id: departmentId,
+              full_name: item.full_name,
+              title: item.title
+            }));
+            const { error: insertErr } = await supabase.from('members').insert(insertRows);
+            if (insertErr) throw insertErr;
+
+            // Tải lại danh sách đoàn viên và điểm sau khi trigger DB đã gộp lịch sử điểm từ chi đoàn cũ
+            const { data: refreshedMembers } = await supabase
+              .from('members')
+              .select('*')
+              .eq('department_id', departmentId)
+              .order('created_at', { ascending: true });
+
+            const updatedMembers = refreshedMembers || [];
+            setMembers(updatedMembers);
+            existingMembersMap.clear();
+            updatedMembers.forEach(m => existingMembersMap.set(normalizeName(m.full_name), m));
+
+            if (updatedMembers.length > 0) {
+              const { data: evalsData } = await supabase
+                .from('evaluations')
+                .select('*')
+                .in('member_id', updatedMembers.map(m => m.id))
+                .eq('year', currentYear)
+                .eq('month', currentMonth);
+              const evalsMap: Record<string, any> = {};
+              (evalsData || []).forEach(ev => {
+                evalsMap[ev.member_id] = ev;
+              });
+              currentEvaluations = evalsMap;
+            }
+          }
+
+          const newEvals = { ...currentEvaluations };
           let mappedCount = 0;
 
-          // Phân loại đoàn viên cũ
+          // Phân loại và điền điểm
           const memberAdded = new Set();
           parsed.forEach(item => {
-            const nameKey = item.full_name.trim().toLowerCase();
+            const nameKey = normalizeName(item.full_name);
             const existing = existingMembersMap.get(nameKey);
             const hasScores = item.score_1 !== null || item.score_2 !== null || item.score_3 !== null || item.score_4 !== null || item.score_5 !== null;
             
@@ -692,6 +773,10 @@ export default function DepartmentDashboard() {
           <button className="btn btn-secondary" onClick={() => setShowMemberModal(true)}>
             <UserPlus size={18} />
             Thêm Đoàn viên
+          </button>
+          <button className="btn btn-secondary" onClick={handleQuickFillScores} disabled={members.length === 0}>
+            <Zap size={18} />
+            Điền nhanh
           </button>
           <button className="btn btn-secondary" onClick={() => setShowImportModal(true)}>
             <FileUp size={18} />
