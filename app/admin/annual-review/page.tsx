@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect, useMemo, Fragment } from 'react';
 import { supabase } from '@/lib/supabase';
-import { FileDown, Search, Award, Trash2 } from 'lucide-react';
+import { FileDown, Search, Award, Trash2, Trophy, X, ArrowUpDown } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
 import XLSX from 'xlsx-js-style';
-import { sortMembersByTitle } from '@/lib/sortMembers';
+import { sortMembersByTitle, getTitlePriority } from '@/lib/sortMembers';
 
 interface MonthSlot {
   year: number;
@@ -24,23 +24,12 @@ export default function AnnualReviewPage() {
   const [loading, setLoading] = useState(true);
   const [deptFilter, setDeptFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [minMonthsForA, setMinMonthsForA] = useState<number>(8);
+  const [showTopModal, setShowTopModal] = useState<boolean>(false);
+  const [topLimit, setTopLimit] = useState<string>('10');
+  const [topDeptFilter, setTopDeptFilter] = useState<string>('all');
+  const [topSortOrder, setTopSortOrder] = useState<'desc' | 'asc'>('desc');
   const toast = useToast();
-
-  const handleDeleteMember = async (member: any) => {
-    const confirmed = await toast.confirm(
-      `Bạn có chắc chắn muốn xóa đoàn viên "${member.full_name}"?\nToàn bộ lịch sử điểm đánh giá của đoàn viên này cũng sẽ bị xóa vĩnh viễn.`
-    );
-    if (!confirmed) return;
-
-    try {
-      const { error } = await supabase.from('members').delete().eq('id', member.id);
-      if (error) throw error;
-      toast.success(`Đã xóa đoàn viên "${member.full_name}"`);
-      fetchData();
-    } catch (err: any) {
-      toast.error('Lỗi khi xóa đoàn viên: ' + (err.message || 'Không xác định'));
-    }
-  };
 
   const normalizeName = (name: string | null | undefined) =>
     String(name || '')
@@ -67,10 +56,6 @@ export default function AnnualReviewPage() {
       });
     }
     return slots;
-  }, [selectedYear]);
-
-  useEffect(() => {
-    fetchData();
   }, [selectedYear]);
 
   const fetchData = async () => {
@@ -206,9 +191,35 @@ export default function AnnualReviewPage() {
     }
   };
 
-  const getRank = (score: number | null | undefined) => {
+  useEffect(() => {
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedYear]);
+
+  const handleDeleteMember = async (member: any) => {
+    const confirmed = await toast.confirm(
+      `Bạn có chắc chắn muốn xóa đoàn viên "${member.full_name}"?\nToàn bộ lịch sử điểm đánh giá của đoàn viên này cũng sẽ bị xóa vĩnh viễn.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.from('members').delete().eq('id', member.id);
+      if (error) throw error;
+      toast.success(`Đã xóa đoàn viên "${member.full_name}"`);
+      fetchData();
+    } catch (err: any) {
+      toast.error('Lỗi khi xóa đoàn viên: ' + (err.message || 'Không xác định'));
+    }
+  };
+
+  const getRank = (score: number | null | undefined, evaluatedMonths = 0) => {
     if (score == null || score <= 0) return { text: '-', class: '', type: '' };
-    if (score >= 90) return { text: 'HTXSNV', class: 'badge-a', type: 'A' };
+    if (score >= 90) {
+      if (evaluatedMonths >= minMonthsForA) {
+        return { text: 'HTXSNV', class: 'badge-a', type: 'A' };
+      }
+      return { text: 'HTTNV', class: 'badge-b', type: 'B' };
+    }
     if (score >= 70) return { text: 'HTTNV', class: 'badge-b', type: 'B' };
     if (score >= 50) return { text: 'HTNV', class: 'badge-c', type: 'C' };
     return { text: 'KHTNV', class: 'badge-d', type: 'D' };
@@ -243,7 +254,7 @@ export default function AnnualReviewPage() {
     });
 
     const avg = count > 0 ? Number((sum / count).toFixed(4)) : null;
-    const rank = getRank(avg);
+    const rank = getRank(avg, count);
     return { scores, avg, count, rank };
   };
 
@@ -278,7 +289,7 @@ export default function AnnualReviewPage() {
       });
     });
     return res;
-  }, [filteredDepartments, evalMap, monthSlots]);
+  }, [filteredDepartments, evalMap, nameEvalMap, monthSlots, minMonthsForA]);
 
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
@@ -539,6 +550,159 @@ export default function AnnualReviewPage() {
     (_, i) => currentCalendarYear - i
   );
 
+  // Danh sách đủ điều kiện xếp hạng: phải có đủ 12/12 tháng có điểm (> 0)
+  const deptNameMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    departments.forEach((d) => {
+      m[d.id] = d.name;
+    });
+    return m;
+  }, [departments]);
+
+  const eligibleRanking = useMemo(() => {
+    const list = members
+      .filter((m) => topDeptFilter === 'all' || m.department_id === topDeptFilter)
+      .map((member) => {
+        const { scores, avg, count, rank } = getMemberSummary(member);
+        const numericScores = scores
+          .map((s) => s.score)
+          .filter((v): v is number => typeof v === 'number' && v > 0);
+        const minScore = numericScores.length > 0 ? Math.min(...numericScores) : null;
+        const maxScore = numericScores.length > 0 ? Math.max(...numericScores) : null;
+        return {
+          member,
+          departmentName: deptNameMap[member.department_id] || 'Chưa rõ chi đoàn',
+          avg,
+          count,
+          rank,
+          minScore,
+          maxScore,
+        };
+      })
+      .filter((item) => item.count === 12 && item.avg != null);
+
+    list.sort((a, b) => {
+      const diff = (b.avg ?? 0) - (a.avg ?? 0);
+      if (diff !== 0) return topSortOrder === 'desc' ? diff : -diff;
+      const pDiff = getTitlePriority(a.member.title) - getTitlePriority(b.member.title);
+      if (pDiff !== 0) return pDiff;
+      return String(a.member.full_name || '').localeCompare(String(b.member.full_name || ''), 'vi');
+    });
+
+    return list;
+  }, [members, topDeptFilter, topSortOrder, evalMap, nameEvalMap, monthSlots, deptNameMap]);
+
+  const displayedRanking = useMemo(() => {
+    if (topLimit === 'all' || topLimit.trim() === '') return eligibleRanking;
+    const n = parseInt(topLimit, 10);
+    if (isNaN(n) || n <= 0) return eligibleRanking;
+    return eligibleRanking.slice(0, n);
+  }, [eligibleRanking, topLimit]);
+
+  const exportTopRankingExcel = () => {
+    if (displayedRanking.length === 0) {
+      toast.info('Không có đoàn viên nào đủ 12 tháng đánh giá để xuất.');
+      return;
+    }
+
+    const wb = XLSX.utils.book_new();
+    const rows: any[][] = [];
+    const thinBorder = {
+      top: { style: 'thin', color: { rgb: '000000' } },
+      bottom: { style: 'thin', color: { rgb: '000000' } },
+      left: { style: 'thin', color: { rgb: '000000' } },
+      right: { style: 'thin', color: { rgb: '000000' } },
+    };
+    const baseFont = { name: 'Times New Roman', sz: 12 };
+
+    const limitLabel =
+      topLimit === 'all' || !topLimit
+        ? `TẤT CẢ (${displayedRanking.length} ĐOÀN VIÊN)`
+        : `TOP ${displayedRanking.length}`;
+
+    rows.push([`DANH SÁCH XẾP HẠNG ĐIỂM TRUNG BÌNH NĂM ${selectedYear} - ${limitLabel}`]);
+    rows.push([
+      `Điều kiện: Đủ 12/12 tháng đánh giá (T12/${selectedYear - 1} - T11/${selectedYear})${
+        topDeptFilter !== 'all' ? ` | Chi đoàn: ${deptNameMap[topDeptFilter] || ''}` : ' | Toàn Trung tâm'
+      }`,
+    ]);
+    rows.push([]);
+    rows.push(['Hạng', 'Họ và tên', 'Chức danh', 'Chi đoàn', 'Số tháng', 'Điểm TB', 'Xếp loại']);
+
+    displayedRanking.forEach((item, idx) => {
+      rows.push([
+        idx + 1,
+        item.member.full_name,
+        item.member.title,
+        item.departmentName,
+        `${item.count}/12`,
+        item.avg,
+        item.rank.text,
+      ]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } },
+    ];
+    ws['!cols'] = [
+      { wch: 7 },
+      { wch: 25 },
+      { wch: 22 },
+      { wch: 32 },
+      { wch: 11 },
+      { wch: 12 },
+      { wch: 13 },
+    ];
+    ws['!rows'] = [
+      { hpt: 26 },
+      { hpt: 20 },
+      { hpt: 10 },
+      { hpt: 26 },
+      ...displayedRanking.map(() => ({ hpt: 22 })),
+    ];
+
+    const setStyle = (r: number, c: number, style: any) => {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+      ws[addr].s = style;
+    };
+
+    setStyle(0, 0, {
+      font: { ...baseFont, sz: 14, bold: true },
+      alignment: { horizontal: 'center', vertical: 'center' },
+    });
+    setStyle(1, 0, {
+      font: { ...baseFont, sz: 11, italic: true },
+      alignment: { horizontal: 'center', vertical: 'center' },
+    });
+
+    for (let c = 0; c <= 6; c++) {
+      setStyle(3, c, {
+        font: { ...baseFont, sz: 11, bold: true },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+        border: thinBorder,
+      });
+    }
+
+    displayedRanking.forEach((_, idx) => {
+      const r = 4 + idx;
+      for (let c = 0; c <= 6; c++) {
+        const isLeft = c === 1 || c === 3;
+        const isBold = c === 0 || c === 5;
+        setStyle(r, c, {
+          font: { ...baseFont, sz: 11, bold: isBold },
+          alignment: { horizontal: isLeft ? 'left' : 'center', vertical: 'center', wrapText: true },
+          border: thinBorder,
+        });
+      }
+    });
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Xếp hạng');
+    XLSX.writeFile(wb, `Top_Xep_Hang_Nam_${selectedYear}.xlsx`);
+  };
+
   return (
     <div className="flex flex-col gap-2 h-full min-h-0 overflow-hidden animate-in fade-in duration-300">
       {/* Compact Header + Filters + Inline Stats */}
@@ -580,6 +744,22 @@ export default function AnnualReviewPage() {
               ))}
             </select>
 
+            <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs">
+              <span className="text-slate-400 whitespace-nowrap">HTXSNV ≥</span>
+              <select
+                className="bg-transparent text-emerald-300 font-semibold focus:outline-none cursor-pointer"
+                value={minMonthsForA}
+                onChange={(e) => setMinMonthsForA(Number(e.target.value))}
+                title="Số tháng đánh giá tối thiểu để được xếp loại HTXSNV (nếu ít hơn tối đa chỉ được HTTNV)"
+              >
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                  <option key={m} value={m} className="bg-slate-800 text-white">
+                    {m} tháng
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="relative">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -590,6 +770,18 @@ export default function AnnualReviewPage() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
+
+            <button
+              className="btn bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 py-1 px-2.5 text-xs"
+              onClick={() => {
+                setTopDeptFilter(deptFilter);
+                setShowTopModal(true);
+              }}
+              title="Xem bảng xếp hạng điểm trung bình cao nhất (đủ 12 tháng)"
+            >
+              <Trophy size={14} />
+              Xếp hạng Top
+            </button>
 
             <button
               className="btn btn-secondary py-1 px-2.5 text-xs"
@@ -711,7 +903,8 @@ export default function AnnualReviewPage() {
                         </td>
                       </tr>
                       {dept.members.map((member: any) => {
-                        const { scores, avg, rank } = getMemberSummary(member);
+                        const { scores, avg, count, rank } = getMemberSummary(member);
+                        const isCappedToB = avg != null && avg >= 90 && count < minMonthsForA;
                         return (
                           <tr key={member.id} className="group hover:bg-slate-800/40 transition-colors">
                             <td className="sticky left-0 z-20 bg-slate-900 group-hover:bg-slate-800 table-td text-center text-xs text-slate-400 border-r border-b border-slate-800 px-1 py-2 w-[42px] min-w-[42px]">
@@ -739,7 +932,16 @@ export default function AnnualReviewPage() {
                             </td>
                             <td className="table-td text-center border-r border-b border-slate-800 px-1 py-2 whitespace-nowrap">
                               {avg != null ? (
-                                <span className={`badge ${rank.class} text-[10px] px-1.5 py-0.5`}>{rank.text}</span>
+                                <span
+                                  className={`badge ${rank.class} text-[10px] px-1.5 py-0.5`}
+                                  title={
+                                    isCappedToB
+                                      ? `Điểm TB ≥ 90 nhưng mới có ${count}/12 tháng (< ${minMonthsForA} tháng) nên xếp tối đa HTTNV`
+                                      : `${count}/12 tháng có điểm`
+                                  }
+                                >
+                                  {rank.text}
+                                </span>
                               ) : (
                                 <span className="text-slate-600 text-xs">-</span>
                               )}
@@ -764,6 +966,184 @@ export default function AnnualReviewPage() {
           </table>
         </div>
       </div>
+
+      {/* Popup Xếp hạng điểm trung bình (đủ 12 tháng) */}
+      {showTopModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div className="glass-panel w-full max-w-4xl max-h-[86vh] flex flex-col border border-slate-700/80 shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-slate-800 bg-slate-900/90 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                  <Trophy size={20} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">
+                    Bảng xếp hạng điểm trung bình năm {selectedYear}
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Chỉ tính đoàn viên có đủ <strong className="text-amber-300">12/12 tháng</strong> đánh giá (&gt; 0 điểm) từ T12/{selectedYear - 1} đến T11/{selectedYear}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowTopModal(false)}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 bg-slate-900/50 border-b border-slate-800 shrink-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1">
+                  <span className="text-xs text-slate-400">Số người:</span>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="Tất cả"
+                    className="w-14 bg-transparent text-xs font-semibold text-white text-center focus:outline-none"
+                    value={topLimit === 'all' ? '' : topLimit}
+                    onChange={(e) => setTopLimit(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex items-center gap-1">
+                  {['5', '10', '15', '20', 'all'].map((preset) => {
+                    const active = topLimit === preset;
+                    return (
+                      <button
+                        key={preset}
+                        onClick={() => setTopLimit(preset)}
+                        className={`px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                          active
+                            ? 'bg-amber-500 text-slate-950 font-semibold'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        {preset === 'all' ? 'Tất cả' : `Top ${preset}`}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <select
+                  className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2.5 py-1 text-xs max-w-[200px] focus:outline-none focus:border-amber-500"
+                  value={topDeptFilter}
+                  onChange={(e) => setTopDeptFilter(e.target.value)}
+                >
+                  <option value="all">Tất cả chi đoàn</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  onClick={() => setTopSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 transition-colors"
+                  title="Đổi thứ tự sắp xếp"
+                >
+                  <ArrowUpDown size={13} />
+                  {topSortOrder === 'desc' ? 'Cao → Thấp' : 'Thấp → Cao'}
+                </button>
+              </div>
+
+              <button
+                onClick={exportTopRankingExcel}
+                disabled={displayedRanking.length === 0}
+                className="btn btn-secondary py-1 px-3 text-xs disabled:opacity-50"
+              >
+                <FileDown size={14} />
+                Xuất Excel Top
+              </button>
+            </div>
+
+            {/* Eligible summary */}
+            <div className="px-5 py-2 bg-slate-950/40 border-b border-slate-800/80 flex items-center justify-between text-xs text-slate-400 shrink-0">
+              <span>
+                Đủ điều kiện (12/12 tháng):{' '}
+                <strong className="text-emerald-400">{eligibleRanking.length}</strong> / {members.length} đoàn viên
+              </span>
+              <span>
+                Đang hiển thị: <strong className="text-white">{displayedRanking.length}</strong> người
+              </span>
+            </div>
+
+            {/* Modal Table */}
+            <div className="overflow-auto flex-1">
+              <table className="w-full text-left border-collapse">
+                <thead className="sticky top-0 z-10 bg-slate-900 border-b border-slate-700">
+                  <tr>
+                    <th className="table-th text-center w-14 text-xs py-2.5">Hạng</th>
+                    <th className="table-th text-xs py-2.5">Họ và tên</th>
+                    <th className="table-th text-xs py-2.5">Chức danh</th>
+                    <th className="table-th text-xs py-2.5">Chi đoàn</th>
+                    <th className="table-th text-center text-xs py-2.5 w-24">Thấp – Cao</th>
+                    <th className="table-th text-center text-xs py-2.5 w-24">Điểm TB</th>
+                    <th className="table-th text-center text-xs py-2.5 w-24">Đánh giá</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {displayedRanking.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="text-center py-12 text-slate-400 text-sm">
+                        Chưa có đoàn viên nào có đủ 12/12 tháng đánh giá trong năm {selectedYear}.
+                      </td>
+                    </tr>
+                  ) : (
+                    displayedRanking.map((item, idx) => {
+                      const rankNum = idx + 1;
+                      const medalClass =
+                        topSortOrder === 'desc' && rankNum === 1
+                          ? 'bg-amber-400/20 text-amber-300 border-amber-400/50'
+                          : topSortOrder === 'desc' && rankNum === 2
+                          ? 'bg-slate-300/20 text-slate-200 border-slate-300/40'
+                          : topSortOrder === 'desc' && rankNum === 3
+                          ? 'bg-orange-500/20 text-orange-300 border-orange-500/40'
+                          : 'bg-slate-800 text-slate-400 border-slate-700';
+
+                      return (
+                        <tr key={item.member.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="table-td text-center py-2.5">
+                            <span
+                              className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold border ${medalClass}`}
+                            >
+                              {rankNum}
+                            </span>
+                          </td>
+                          <td className="table-td font-semibold text-sm text-white py-2.5">
+                            {item.member.full_name}
+                          </td>
+                          <td className="table-td text-xs text-slate-300 py-2.5">
+                            {item.member.title}
+                          </td>
+                          <td className="table-td text-xs text-slate-400 py-2.5">
+                            {item.departmentName}
+                          </td>
+                          <td className="table-td text-center text-xs text-slate-400 py-2.5">
+                            {item.minScore} – {item.maxScore}
+                          </td>
+                          <td className="table-td text-center font-bold text-sm text-amber-300 py-2.5">
+                            {item.avg}
+                          </td>
+                          <td className="table-td text-center py-2.5">
+                            <span className={`badge ${item.rank.class} text-[11px] px-2 py-0.5`}>
+                              {item.rank.text}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

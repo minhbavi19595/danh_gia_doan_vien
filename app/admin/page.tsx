@@ -4,13 +4,15 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Users, TrendingUp, Award, AlertTriangle, Eye } from 'lucide-react';
 import Link from 'next/link';
+import { getMaxEvaluationPeriod, getAvailableYears, getAvailableMonths } from '@/lib/evaluationPeriod';
 
 export default function AdminDashboard() {
+  const { maxYear, maxMonth } = getMaxEvaluationPeriod();
   const [stats, setStats] = useState({ A: 0, B: 0, C: 0, D: 0, total: 0 });
   const [loading, setLoading] = useState(true);
   const [departmentsData, setDepartmentsData] = useState<any[]>([]);
-  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
-  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
+  const [currentYear, setCurrentYear] = useState(maxYear);
+  const [currentMonth, setCurrentMonth] = useState(maxMonth);
 
   useEffect(() => {
     fetchData();
@@ -128,12 +130,12 @@ export default function AdminDashboard() {
             onChange={(e) => {
               const y = parseInt(e.target.value);
               setCurrentYear(y);
-              if (y === new Date().getFullYear() && currentMonth > new Date().getMonth() + 1) {
-                setCurrentMonth(new Date().getMonth() + 1);
+              if (y === maxYear && currentMonth > maxMonth) {
+                setCurrentMonth(maxMonth);
               }
             }}
           >
-            {Array.from({ length: new Date().getFullYear() - 2024 + 1 }, (_, i) => new Date().getFullYear() - i).map(y => (
+            {getAvailableYears(2024).map(y => (
               <option key={y} value={y}>{y}</option>
             ))}
           </select>
@@ -143,7 +145,7 @@ export default function AdminDashboard() {
             value={currentMonth}
             onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
           >
-            {Array.from({ length: currentYear === new Date().getFullYear() ? new Date().getMonth() + 1 : 12 }, (_, i) => i + 1).map(m => (
+            {getAvailableMonths(currentYear).map(m => (
               <option key={m} value={m}>Tháng {m}</option>
             ))}
           </select>

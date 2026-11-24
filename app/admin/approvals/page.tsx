@@ -7,6 +7,7 @@ import { Check, X, CheckCircle2, XCircle, FileDown, Save, Edit, Trash2 } from 'l
 import { useToast } from '@/contexts/ToastContext';
 import XLSX from 'xlsx-js-style';
 import { sortMembersByTitle } from '@/lib/sortMembers';
+import { getMaxEvaluationPeriod, getAvailableYears, getAvailableMonths } from '@/lib/evaluationPeriod';
 
 export default function ApprovalsPage() {
   const router = useRouter();
@@ -16,8 +17,9 @@ export default function ApprovalsPage() {
   const [members, setMembers] = useState<any[]>([]);
   const [evaluations, setEvaluations] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
-  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
-  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
+  const { maxYear, maxMonth } = getMaxEvaluationPeriod();
+  const [currentYear, setCurrentYear] = useState(maxYear);
+  const [currentMonth, setCurrentMonth] = useState(maxMonth);
 
   // Inline edit state for rejecting
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -532,12 +534,12 @@ export default function ApprovalsPage() {
               onChange={(e) => {
                 const y = Number(e.target.value);
                 setCurrentYear(y);
-                if (y === new Date().getFullYear() && currentMonth > new Date().getMonth() + 1) {
-                  setCurrentMonth(new Date().getMonth() + 1);
+                if (y === maxYear && currentMonth > maxMonth) {
+                  setCurrentMonth(maxMonth);
                 }
               }}
             >
-              {Array.from({ length: new Date().getFullYear() - 2024 + 1 }, (_, i) => new Date().getFullYear() - i).map(y => (
+              {getAvailableYears(2024).map(y => (
                 <option key={y} value={y}>Năm {y}</option>
               ))}
             </select>
@@ -546,7 +548,7 @@ export default function ApprovalsPage() {
               value={currentMonth}
               onChange={(e) => setCurrentMonth(Number(e.target.value))}
             >
-              {Array.from({ length: currentYear === new Date().getFullYear() ? new Date().getMonth() + 1 : 12 }, (_, i) => i + 1).map(m => (
+              {getAvailableMonths(currentYear).map(m => (
                 <option key={m} value={m}>Tháng {m}</option>
               ))}
             </select>

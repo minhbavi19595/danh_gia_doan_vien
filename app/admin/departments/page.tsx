@@ -165,16 +165,15 @@ export default function Departments() {
                 <th className="table-th">Role</th>
                 <th className="table-th">Chi đoàn (nếu có)</th>
                 <th className="table-th">Trạng thái</th>
-                <th className="table-th">Mã User (User ID)</th>
                 <th className="table-th">Ngày tạo</th>
                 <th className="table-th text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="text-center p-8 text-slate-400">Đang tải dữ liệu...</td></tr>
+                <tr><td colSpan={6} className="text-center p-8 text-slate-400">Đang tải dữ liệu...</td></tr>
               ) : users.length === 0 ? (
-                <tr><td colSpan={7} className="text-center p-8 text-slate-400">Chưa có tài khoản nào</td></tr>
+                <tr><td colSpan={6} className="text-center p-8 text-slate-400">Chưa có tài khoản nào</td></tr>
               ) : (
                 users.map(user => (
                   <tr key={user.id} className="hover:bg-slate-800/50 transition-colors">
@@ -198,7 +197,6 @@ export default function Departments() {
                         </span>
                       )}
                     </td>
-                    <td className="table-td text-slate-500 text-xs font-mono">{user.id}</td>
                     <td className="table-td">{new Date(user.created_at).toLocaleDateString('vi-VN')}</td>
                     <td className="table-td text-right">
                       <div className="flex items-center justify-end gap-1">

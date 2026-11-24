@@ -32,7 +32,7 @@ export default function DashboardLayout({
     return null;
   }
 
-  const isFullViewport = pathname.includes('/annual-review');
+  const isFullViewport = pathname.includes('/annual-review') || pathname.includes('/evaluations/all');
 
   return (
     <div className={`flex flex-col ${isFullViewport ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>

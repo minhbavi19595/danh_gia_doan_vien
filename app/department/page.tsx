@@ -1,16 +1,18 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
-import { Plus, Save, UserPlus, RefreshCw, X, FileDown, FileUp, Upload, Download, Zap } from 'lucide-react';
+import { Save, UserPlus, RefreshCw, X, FileDown, Zap, Check, ArrowRightLeft, Search } from 'lucide-react';
 import XLSX from 'xlsx-js-style';
 import { sortMembersByTitle } from '@/lib/sortMembers';
+import { getMaxEvaluationPeriod, getAvailableYears, getAvailableMonths } from '@/lib/evaluationPeriod';
 
 export default function DepartmentDashboard() {
   const { user } = useAuth();
   const toast = useToast();
+  const { maxYear, maxMonth } = getMaxEvaluationPeriod();
   const [departmentId, setDepartmentId] = useState<string | null>(null);
   const [departmentName, setDepartmentName] = useState<string>('');
   const [members, setMembers] = useState<any[]>([]);
@@ -18,18 +20,12 @@ export default function DepartmentDashboard() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   
-  // Year & Month selector
-  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
-  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
+  // Year & Month selector (mặc định mở theo kỳ mới nhất: từ ngày 24 mở tháng sau)
+  const [currentYear, setCurrentYear] = useState(maxYear);
+  const [currentMonth, setCurrentMonth] = useState(maxMonth);
 
-  // Modal
-  const [newMemberTitle, setNewMemberTitle] = useState('');
-  
-  // Import Modal state
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [dragActive, setDragActive] = useState(false);
+  // Add member modal state
   const [showMemberModal, setShowMemberModal] = useState(false);
-  const [memberModalTab, setMemberModalTab] = useState<'manual'|'excel'>('manual');
   const [memberForm, setMemberForm] = useState({ full_name: '', title: '' });
 
   // Edit & Transfer state
@@ -40,9 +36,19 @@ export default function DepartmentDashboard() {
   const [transferMemberId, setTransferMemberId] = useState('');
   const [targetDepartmentId, setTargetDepartmentId] = useState('');
   const [allDepartments, setAllDepartments] = useState<any[]>([]);
+  const [incomingTransfers, setIncomingTransfers] = useState<any[]>([]);
+  const [outgoingTransfers, setOutgoingTransfers] = useState<Record<string, any>>({});
+  const [searchTerm, setSearchTerm] = useState('');
 
-  // Import modal data
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const filteredMembers = useMemo(() => {
+    const kw = searchTerm.trim().toLowerCase();
+    if (!kw) return members;
+    return members.filter(
+      (m) =>
+        m.full_name?.toLowerCase().includes(kw) ||
+        m.title?.toLowerCase().includes(kw)
+    );
+  }, [members, searchTerm]);
 
   useEffect(() => {
     if (user?.id) {
@@ -84,6 +90,37 @@ export default function DepartmentDashboard() {
         .select('id, name')
         .order('name', { ascending: true });
       setAllDepartments(allDepts || []);
+
+      // Tải các yêu cầu chuyển chi đoàn đang chờ xác nhận (chiều đến và chiều đi)
+      const { data: pendingReqs } = await supabase
+        .from('member_transfer_requests')
+        .select('id, member_id, from_department_id, to_department_id, status, created_at, members(full_name, title)')
+        .eq('status', 'pending')
+        .or(`from_department_id.eq.${departmentId},to_department_id.eq.${departmentId}`)
+        .order('created_at', { ascending: false });
+
+      const deptMap: Record<string, string> = {};
+      (allDepts || []).forEach((d) => {
+        deptMap[d.id] = d.name;
+      });
+
+      const incoming: any[] = [];
+      const outgoingMap: Record<string, any> = {};
+      (pendingReqs || []).forEach((req: any) => {
+        const enriched = {
+          ...req,
+          from_department_name: deptMap[req.from_department_id] || 'Chi đoàn cũ',
+          to_department_name: deptMap[req.to_department_id] || 'Chi đoàn mới',
+        };
+        if (req.to_department_id === departmentId) {
+          incoming.push(enriched);
+        }
+        if (req.from_department_id === departmentId) {
+          outgoingMap[req.member_id] = enriched;
+        }
+      });
+      setIncomingTransfers(incoming);
+      setOutgoingTransfers(outgoingMap);
 
       if (membersData && membersData.length > 0) {
         const memberIds = membersData.map(m => m.id);
@@ -158,19 +195,63 @@ export default function DepartmentDashboard() {
     }
     
     try {
-      const { error } = await supabase.rpc('transfer_member', {
+      const { error } = await supabase.rpc('request_member_transfer', {
         p_member_id: transferMemberId,
         p_target_department_id: targetDepartmentId
       });
         
       if (error) throw error;
-      toast.success('Đã chuyển sinh hoạt đoàn thành công!');
+      toast.success('Đã gửi yêu cầu chuyển sinh hoạt! Đang chờ Bí thư Chi đoàn mới xác nhận.');
       setShowTransferModal(false);
       setTransferMemberId('');
       setTargetDepartmentId('');
       fetchData();
     } catch (err: any) {
       toast.error('Lỗi: ' + err.message);
+    }
+  };
+
+  const handleRespondTransfer = async (req: any, approve: boolean) => {
+    const memberName = req.members?.full_name || 'đoàn viên này';
+    const confirmed = await toast.confirm(
+      approve
+        ? `Xác nhận tiếp nhận "${memberName}" từ ${req.from_department_name}?\nToàn bộ dữ liệu điểm các tháng trước sẽ được chuyển sang chi đoàn của bạn.`
+        : `Từ chối tiếp nhận "${memberName}" từ ${req.from_department_name}?\nĐoàn viên này sẽ tiếp tục ở lại chi đoàn cũ.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.rpc('respond_member_transfer', {
+        p_request_id: req.id,
+        p_approve: approve,
+      });
+      if (error) throw error;
+      toast.success(
+        approve
+          ? `Đã tiếp nhận "${memberName}" vào chi đoàn!`
+          : `Đã từ chối yêu cầu chuyển "${memberName}".`
+      );
+      fetchData();
+    } catch (err: any) {
+      toast.error('Lỗi xử lý yêu cầu: ' + (err.message || 'Không xác định'));
+    }
+  };
+
+  const handleCancelTransfer = async (req: any, memberName: string) => {
+    const confirmed = await toast.confirm(
+      `Hủy yêu cầu chuyển "${memberName}" sang ${req.to_department_name}?`
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.rpc('cancel_member_transfer', {
+        p_request_id: req.id,
+      });
+      if (error) throw error;
+      toast.info(`Đã hủy yêu cầu chuyển "${memberName}".`);
+      fetchData();
+    } catch (err: any) {
+      toast.error('Lỗi khi hủy yêu cầu: ' + (err.message || 'Không xác định'));
     }
   };
 
@@ -256,412 +337,6 @@ export default function DepartmentDashboard() {
     if (score >= 70) return { text: 'HTTNV', class: 'badge-b' };
     if (score >= 50) return { text: 'HTNV', class: 'badge-c' };
     return { text: 'KHTNV', class: 'badge-d' };
-  };
-
-  // ============ DOWNLOAD TEMPLATES ============
-  const downloadTemplateAdd = () => {
-    const wb = XLSX.utils.book_new();
-    const templateData = [
-      ['Họ và tên', 'Chức danh', 'Lý tưởng cách mạng, nhận thức chính trị', 'Đạo đức, lối sống, tác phong đoàn viên', 'Công tác chuyên môn nghiệp vụ', 'Rèn luyện sức khoẻ', 'Ý thức xây dựng tổ chức đoàn', 'Ghi chú'],
-      ['Nguyễn Văn A', 'Bí thư', '', '', '', '', '', ''],
-      ['Trần Thị B', 'Phó Bí thư', '', '', '', '', '', ''],
-      ['Lê Văn C', 'Đoàn viên', '', '', '', '', '', ''],
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(templateData);
-    ws['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 25 }];
-    XLSX.utils.book_append_sheet(wb, ws, 'Danh sách');
-    XLSX.writeFile(wb, 'Mau_Them_Moi_Doan_Vien.xlsx');
-    toast.info('Đã tải file mẫu thêm mới!');
-  };
-
-  const downloadTemplateGrade = () => {
-    if (members.length === 0) {
-      toast.info('Chi đoàn chưa có đoàn viên nào!');
-      return;
-    }
-    const wb = XLSX.utils.book_new();
-    const templateData = [
-      ['Họ và tên', 'Chức danh', 'Lý tưởng cách mạng, nhận thức chính trị', 'Đạo đức, lối sống, tác phong đoàn viên', 'Công tác chuyên môn nghiệp vụ', 'Rèn luyện sức khoẻ', 'Ý thức xây dựng tổ chức đoàn', 'Ghi chú']
-    ];
-    
-    members.forEach(m => {
-      templateData.push([m.full_name, m.title, '', '', '', '', '', '']);
-    });
-    
-    const ws = XLSX.utils.aoa_to_sheet(templateData);
-    ws['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 25 }];
-    XLSX.utils.book_append_sheet(wb, ws, 'Danh sách');
-    XLSX.writeFile(wb, 'Mau_Cham_Diem_Doan_Vien.xlsx');
-    toast.info('Đã tải danh sách để chấm điểm!');
-  };
-
-  const processExcelMembersAndScores = (file: File) => {
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as any[][];
-
-        let headerRowIdx = -1;
-        let sttCol = -1;
-        let nameCol = -1;
-        let titleCol = -1;
-        let s1Col = -1;
-        let s2Col = -1;
-        let s3Col = -1;
-        let s4Col = -1;
-        let s5Col = -1;
-        let noteCol = -1;
-
-        for (let i = 0; i < Math.min(15, jsonData.length); i++) {
-          const row = jsonData[i] || [];
-          for (let j = 0; j < row.length; j++) {
-            const cellVal = String(row[j] || '').normalize('NFC').toLowerCase().trim();
-            if (cellVal.includes('họ') && cellVal.includes('tên')) {
-              headerRowIdx = i;
-              nameCol = j;
-              break;
-            }
-          }
-          if (headerRowIdx >= 0) break;
-        }
-
-        if (headerRowIdx < 0 || nameCol < 0) {
-          toast.error('Không tìm thấy cột "Họ và tên" trong file Excel.');
-          return;
-        }
-
-        const headerRow = jsonData[headerRowIdx] || [];
-        const subHeaderRow = jsonData[headerRowIdx + 1] || [];
-        let totalCol = -1;
-        const maxCols = Math.max(headerRow.length, subHeaderRow.length);
-
-        for (let j = 0; j < maxCols; j++) {
-          const h = String(headerRow[j] || '').normalize('NFC').toLowerCase().trim();
-          const h2 = String(subHeaderRow[j] || '').normalize('NFC').toLowerCase().trim();
-          if (h === 'stt' || h === 'tt') sttCol = j;
-          else if (h.includes('chức danh') || h.includes('chức vụ')) titleCol = j;
-          else if (h.includes('lý tưởng') || h === 'tc1') s1Col = j;
-          else if (h.includes('đạo đức') || h === 'tc2') s2Col = j;
-          else if (h.includes('chuyên môn') || h === 'tc3') s3Col = j;
-          else if (h.includes('sức khoẻ') || h.includes('sức khỏe') || h === 'tc4') s4Col = j;
-          else if (h.includes('ý thức') || h.includes('phong trào') || h === 'tc5') s5Col = j;
-          else if (h.includes('ghi chú')) noteCol = j;
-
-          if ((h.includes('tổng điểm') || h2.includes('tổng điểm')) && totalCol < 0) {
-            totalCol = j;
-          }
-        }
-
-        if (titleCol < 0) titleCol = nameCol + 1;
-        if (s1Col < 0) s1Col = titleCol + 1;
-        if (s2Col < 0) s2Col = titleCol + 2;
-        if (s3Col < 0) s3Col = titleCol + 3;
-        if (s4Col < 0) s4Col = titleCol + 4;
-        if (s5Col < 0) s5Col = titleCol + 5;
-        if (noteCol < 0) noteCol = titleCol + 6;
-
-        const parseNum = (v: any) => {
-          if (v === '' || v === null || v === undefined) return null;
-          const n = Number(v);
-          return isNaN(n) ? null : n;
-        };
-
-        const splitTotalTo5 = (total: number) => {
-          if (total === 89) return { s1: 20, s2: 20, s3: 19, s4: 10, s5: 20 };
-          const c1 = Math.min(20, total);
-          const c2 = Math.min(20, Math.max(0, total - c1));
-          const c3 = Math.min(20, Math.max(0, total - c1 - c2));
-          const c4 = Math.min(15, Math.max(0, total - c1 - c2 - c3));
-          const c5 = Math.max(0, total - c1 - c2 - c3 - c4);
-          return { s1: c1, s2: c2, s3: c3, s4: c4, s5: c5 };
-        };
-
-        const stopPrefixes = [
-          'tổng số',
-          'tổng:',
-          'nơi nhận',
-          'đảng uỷ',
-          'đảng ủy',
-          'lưu:',
-          'tm. bch',
-        ];
-
-        const skipPrefixes = [
-          'các chi đoàn',
-          'chi đoàn ',
-          'bch đoàn',
-          'hà nội,',
-          'quảng oai,',
-        ];
-
-        const parsed: any[] = [];
-        for (let i = headerRowIdx + 1; i < jsonData.length; i++) {
-          const row = jsonData[i];
-          if (!row) continue;
-
-          const firstCellLow = String(row[0] || '').normalize('NFC').trim().toLowerCase();
-          const rawName = String(row[nameCol] || '').normalize('NFC').trim();
-          const lowerName = rawName.toLowerCase();
-
-          // Gặp dòng tổng kết hoặc phần chữ ký cuối bảng thì dừng đọc ngay
-          if (
-            stopPrefixes.some((p) => firstCellLow.startsWith(p) || lowerName.startsWith(p))
-          ) {
-            break;
-          }
-
-          if (!rawName) continue;
-
-          if (
-            lowerName.includes('họ và tên') ||
-            lowerName.includes('tổng điểm') ||
-            lowerName.includes('mức xếp loại') ||
-            skipPrefixes.some((p) => lowerName.startsWith(p))
-          ) {
-            continue;
-          }
-
-          const rawTitle = String(row[titleCol] || '').normalize('NFC').trim();
-          let s1 = parseNum(row[s1Col]);
-          let s2 = parseNum(row[s2Col]);
-          let s3 = parseNum(row[s3Col]);
-          let s4 = parseNum(row[s4Col]);
-          let s5 = parseNum(row[s5Col]);
-          let hasScores = s1 !== null || s2 !== null || s3 !== null || s4 !== null || s5 !== null;
-
-          // Nếu file chỉ điền cột Tổng điểm mà để trống 5 cột tiêu chí
-          if (!hasScores && totalCol >= 0) {
-            const totVal = parseNum(row[totalCol]);
-            if (totVal !== null && totVal >= 0) {
-              const sp = splitTotalTo5(Math.round(totVal));
-              s1 = sp.s1;
-              s2 = sp.s2;
-              s3 = sp.s3;
-              s4 = sp.s4;
-              s5 = sp.s5;
-              hasScores = true;
-            }
-          }
-
-          // Nếu dòng không có chức danh và cũng không có điểm -> bỏ qua (dòng tiêu đề nhóm / dòng trống)
-          if (!rawTitle && !hasScores) {
-            continue;
-          }
-
-          if (sttCol >= 0) {
-            const sttVal = parseNum(row[sttCol]);
-            if (sttVal === null && !rawTitle && !hasScores) {
-              continue;
-            }
-          }
-
-          parsed.push({
-            full_name: rawName,
-            title: rawTitle || 'Đoàn viên',
-            score_1: s1,
-            score_2: s2,
-            score_3: s3,
-            score_4: s4,
-            score_5: s5,
-            hasScores,
-            note: noteCol >= 0 ? String(row[noteCol] || '').trim() : '',
-          });
-        }
-
-        if (parsed.length === 0) {
-          toast.error('Không tìm thấy dữ liệu đoàn viên hợp lệ trong file Excel.');
-          return;
-        }
-
-        try {
-          setLoading(true);
-          const normalizeName = (s: string) =>
-            String(s || '')
-              .normalize('NFC')
-              .trim()
-              .replace(/\s+/g, ' ')
-              .toLowerCase();
-
-          const existingMembersMap = new Map<string, any>();
-          members.forEach((m) => existingMembersMap.set(normalizeName(m.full_name), m));
-
-          // 1. Phân loại tên mới (chưa có trong chi đoàn) để thêm mới, hoặc tên cũ đổi chức danh để cập nhật chức danh mới
-          const missingMembers: { full_name: string; title: string }[] = [];
-          const titleUpdates: { id: string; title: string }[] = [];
-          const seenMissing = new Set<string>();
-          const seenTitleUpdate = new Set<string>();
-
-          parsed.forEach((item) => {
-            const nameKey = normalizeName(item.full_name);
-            if (!nameKey) return;
-            const existing = existingMembersMap.get(nameKey);
-            if (!existing && !seenMissing.has(nameKey)) {
-              seenMissing.add(nameKey);
-              missingMembers.push({
-                full_name: item.full_name,
-                title: item.title || 'Đoàn viên',
-              });
-            } else if (
-              existing &&
-              item.title &&
-              item.title !== existing.title &&
-              !seenTitleUpdate.has(existing.id)
-            ) {
-              seenTitleUpdate.add(existing.id);
-              titleUpdates.push({ id: existing.id, title: item.title });
-            }
-          });
-
-          if (missingMembers.length > 0) {
-            const insertRows = missingMembers.map((item) => ({
-              department_id: departmentId,
-              full_name: item.full_name,
-              title: item.title,
-            }));
-            const { error: insertErr } = await supabase.from('members').insert(insertRows);
-            if (insertErr) throw insertErr;
-          }
-
-          if (titleUpdates.length > 0) {
-            await Promise.all(
-              titleUpdates.map((u) =>
-                supabase.from('members').update({ title: u.title }).eq('id', u.id)
-              )
-            );
-          }
-
-          // 2. Tải lại danh sách đoàn viên mới nhất của chi đoàn
-          const { data: refreshedMembers } = await supabase
-            .from('members')
-            .select('*')
-            .eq('department_id', departmentId)
-            .order('created_at', { ascending: true });
-
-          const updatedMembers = sortMembersByTitle(refreshedMembers || []);
-          setMembers(updatedMembers);
-          existingMembersMap.clear();
-          updatedMembers.forEach((m) => existingMembersMap.set(normalizeName(m.full_name), m));
-
-          // Tải lại evaluations hiện tại của tháng đang chọn
-          let currentEvaluations: Record<string, any> = {};
-          if (updatedMembers.length > 0) {
-            const { data: evalsData } = await supabase
-              .from('evaluations')
-              .select('*')
-              .in(
-                'member_id',
-                updatedMembers.map((m) => m.id)
-              )
-              .eq('year', currentYear)
-              .eq('month', currentMonth);
-            (evalsData || []).forEach((ev) => {
-              currentEvaluations[ev.member_id] = ev;
-            });
-          }
-
-          // 3. Map điểm theo tên cho cả thành viên mới và thành viên cũ
-          const newEvals = { ...currentEvaluations };
-          const upsertRows: any[] = [];
-          const memberProcessed = new Set<string>();
-          let scoredCount = 0;
-
-          parsed.forEach((item) => {
-            const nameKey = normalizeName(item.full_name);
-            const member = existingMembersMap.get(nameKey);
-            if (!member || memberProcessed.has(member.id)) return;
-            memberProcessed.add(member.id);
-
-            if (item.hasScores) {
-              scoredCount++;
-              const s1 = item.score_1 ?? 0;
-              const s2 = item.score_2 ?? 0;
-              const s3 = item.score_3 ?? 0;
-              const s4 = item.score_4 ?? 0;
-              const s5 = item.score_5 ?? 0;
-              const existingEv = newEvals[member.id] || {};
-              const noteVal = item.note || existingEv.note || '';
-
-              newEvals[member.id] = {
-                ...existingEv,
-                member_id: member.id,
-                department_id: departmentId,
-                year: currentYear,
-                month: currentMonth,
-                score_1: s1,
-                score_2: s2,
-                score_3: s3,
-                score_4: s4,
-                score_5: s5,
-                total_score: s1 + s2 + s3 + s4 + s5,
-                note: noteVal,
-              };
-
-              const rowToUpsert: any = {
-                member_id: member.id,
-                department_id: departmentId,
-                year: currentYear,
-                month: currentMonth,
-                score_1: s1,
-                score_2: s2,
-                score_3: s3,
-                score_4: s4,
-                score_5: s5,
-                note: noteVal,
-              };
-              upsertRows.push(rowToUpsert);
-            }
-          });
-
-          // 4. Lưu điểm vào DB luôn nếu trong file có điểm
-          if (upsertRows.length > 0) {
-            const { error: upsertErr } = await supabase
-              .from('evaluations')
-              .upsert(upsertRows, { onConflict: 'member_id, year, month' });
-            if (upsertErr) throw upsertErr;
-          }
-
-          await fetchData();
-
-          const addedMsg =
-            missingMembers.length > 0 ? `thêm mới ${missingMembers.length} đoàn viên` : '';
-          const scoredMsg =
-            scoredCount > 0 ? `cập nhật & lưu điểm cho ${scoredCount} đoàn viên` : '';
-          const summaryMsg = [addedMsg, scoredMsg].filter(Boolean).join(', ');
-
-          toast.success(
-            summaryMsg
-              ? `Import thành công: Đã ${summaryMsg}!`
-              : 'File Excel không có đoàn viên mới hoặc điểm mới để cập nhật.'
-          );
-
-          setShowImportModal(false);
-          setShowMemberModal(false);
-          setLoading(false);
-        } catch (err: any) {
-          toast.error('Lỗi import dữ liệu: ' + err.message);
-          setLoading(false);
-        }
-      } catch (err) {
-        toast.error('Lỗi đọc file Excel. Vui lòng kiểm tra lại file.');
-      }
-    };
-    reader.readAsArrayBuffer(file);
-
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handleImportGradeFileProcess = (file: File) => {
-    processExcelMembersAndScores(file);
-  };
-
-  const handleAddMemberFileProcess = (file: File) => {
-    processExcelMembersAndScores(file);
   };
 
   // ============ EXPORT EXCEL ============
@@ -1036,13 +711,12 @@ export default function DepartmentDashboard() {
               onChange={(e) => {
                 const y = parseInt(e.target.value);
                 setCurrentYear(y);
-                // Reset month if current month exceeds available months for new year
-                if (y === new Date().getFullYear() && currentMonth > new Date().getMonth() + 1) {
-                  setCurrentMonth(new Date().getMonth() + 1);
+                if (y === maxYear && currentMonth > maxMonth) {
+                  setCurrentMonth(maxMonth);
                 }
               }}
             >
-              {Array.from({ length: new Date().getFullYear() - 2024 + 1 }, (_, i) => new Date().getFullYear() - i).map(y => (
+              {getAvailableYears(2024).map(y => (
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>
@@ -1052,10 +726,30 @@ export default function DepartmentDashboard() {
               value={currentMonth}
               onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
             >
-              {Array.from({ length: currentYear === new Date().getFullYear() ? new Date().getMonth() + 1 : 12 }, (_, i) => i + 1).map(m => (
+              {getAvailableMonths(currentYear).map(m => (
                 <option key={m} value={m}>Tháng {m}</option>
               ))}
             </select>
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Tìm tên, chức danh..."
+                className="bg-slate-800 border border-slate-700 text-white rounded-lg pl-9 pr-8 py-1.5 w-48 sm:w-56 text-sm focus:outline-none focus:border-blue-500"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                  title="Xóa từ khóa"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex gap-3 flex-wrap">
@@ -1067,10 +761,6 @@ export default function DepartmentDashboard() {
             <Zap size={18} />
             Điền nhanh
           </button>
-          <button className="btn btn-secondary" onClick={() => setShowImportModal(true)}>
-            <FileUp size={18} />
-            Import điểm từ excel
-          </button>
           <button className="btn btn-secondary" onClick={exportExcel}>
             <FileDown size={18} />
             Xuất báo cáo
@@ -1081,6 +771,50 @@ export default function DepartmentDashboard() {
           </button>
         </div>
       </div>
+
+      {/* Danh sách yêu cầu chuyển đoàn viên đến chi đoàn mình chờ xác nhận */}
+      {incomingTransfers.length > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 space-y-3 shadow-lg">
+          <div className="flex items-center gap-2 text-amber-300 font-semibold text-sm">
+            <ArrowRightLeft size={18} />
+            <span>
+              Có {incomingTransfers.length} yêu cầu chuyển đoàn viên sang chi đoàn của bạn chờ xác nhận
+            </span>
+          </div>
+          <div className="space-y-2">
+            {incomingTransfers.map((req) => (
+              <div
+                key={req.id}
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-900/70 border border-slate-700/70 rounded-lg px-3 py-2.5"
+              >
+                <div className="text-sm">
+                  <span className="font-semibold text-white">{req.members?.full_name || 'Đoàn viên'}</span>
+                  <span className="text-slate-400 text-xs ml-2">({req.members?.title || 'Đoàn viên'})</span>
+                  <div className="text-xs text-slate-400 mt-0.5">
+                    Chuyển từ: <strong className="text-amber-200">{req.from_department_name}</strong>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => handleRespondTransfer(req, true)}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500 hover:bg-emerald-600 text-white transition-colors"
+                  >
+                    <Check size={14} />
+                    Xác nhận tiếp nhận
+                  </button>
+                  <button
+                    onClick={() => handleRespondTransfer(req, false)}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/15 hover:bg-red-500 text-red-300 hover:text-white border border-red-500/30 transition-colors"
+                  >
+                    <X size={14} />
+                    Từ chối
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="glass-panel overflow-hidden border border-slate-700/50 shadow-2xl flex flex-col" style={{ height: 'calc(100vh - 220px)' }}>
         <div className="overflow-auto flex-1">
@@ -1109,10 +843,12 @@ export default function DepartmentDashboard() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={12} className="text-center p-12 text-slate-400">Đang tải dữ liệu...</td></tr>
-              ) : members.length === 0 ? (
-                <tr><td colSpan={12} className="text-center p-12 text-slate-400">Chưa có đoàn viên nào trong phòng ban. Hãy thêm mới hoặc import từ Excel.</td></tr>
+              ) : filteredMembers.length === 0 ? (
+                <tr><td colSpan={12} className="text-center p-12 text-slate-400">
+                  {searchTerm.trim() ? 'Không tìm thấy đoàn viên nào phù hợp.' : 'Chưa có đoàn viên nào trong chi đoàn. Hãy bấm "Thêm Đoàn viên" để thêm mới.'}
+                </td></tr>
               ) : (
-                members.map((member, index) => {
+                filteredMembers.map((member, index) => {
                   const ev = evaluations[member.id] || {};
                   const total = ev.total_score ?? 0;
                   const bchTotal = ev.status === 'rejected' ? ev.bch_total_score : total;
@@ -1125,7 +861,24 @@ export default function DepartmentDashboard() {
                   return (
                     <tr key={member.id} className="hover:bg-slate-800/30 transition-colors">
                       <td className="table-td text-center border-r border-slate-700/50 text-slate-400 p-1">{index + 1}</td>
-                      <td className="table-td font-medium border-r border-slate-700/50 text-white p-1 text-sm">{member.full_name}</td>
+                      <td className="table-td font-medium border-r border-slate-700/50 text-white p-1 text-sm">
+                        <div>{member.full_name}</div>
+                        {outgoingTransfers[member.id] && (
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                              Chờ chuyển → {outgoingTransfers[member.id].to_department_name}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleCancelTransfer(outgoingTransfers[member.id], member.full_name)}
+                              className="text-[10px] text-slate-400 hover:text-red-400 underline"
+                              title="Hủy yêu cầu chuyển chi đoàn"
+                            >
+                              Hủy
+                            </button>
+                          </div>
+                        )}
+                      </td>
                       <td className="table-td text-slate-400 border-r border-slate-700/50 p-1 text-xs">{member.title}</td>
                       
                       {/* Tiêu chí */}
@@ -1199,96 +952,49 @@ export default function DepartmentDashboard() {
       {/* Modal Thêm Đoàn viên */}
       {showMemberModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="glass-panel w-full max-w-lg p-6 animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center mb-4">
+          <div className="glass-panel w-full max-w-md p-6 animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-bold">Thêm Đoàn viên mới</h3>
               <button className="text-slate-400 hover:text-white" onClick={() => setShowMemberModal(false)}>
                 <X size={20} />
               </button>
             </div>
-            
-            <div className="flex border-b border-slate-700 mb-6 gap-2">
-              <button className={`pb-2 px-4 font-medium text-sm transition-colors ${memberModalTab === 'manual' ? 'border-b-2 border-blue-500 text-blue-400' : 'text-slate-400 hover:text-slate-300'}`} onClick={() => setMemberModalTab('manual')}>Nhập thủ công</button>
-              <button className={`pb-2 px-4 font-medium text-sm transition-colors ${memberModalTab === 'excel' ? 'border-b-2 border-blue-500 text-blue-400' : 'text-slate-400 hover:text-slate-300'}`} onClick={() => setMemberModalTab('excel')}>Import bằng Excel</button>
-            </div>
 
-            {memberModalTab === 'manual' ? (
-              <form onSubmit={handleAddMember} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Họ và tên</label>
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    required
-                    value={memberForm.full_name}
-                    onChange={e => setMemberForm({...memberForm, full_name: e.target.value})}
-                    placeholder="Nguyễn Văn A"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Chức danh</label>
-                  <select 
-                    className="form-input bg-black text-white" 
-                    required
-                    value={memberForm.title}
-                    onChange={e => setMemberForm({...memberForm, title: e.target.value})}
-                  >
-                    <option value="" disabled className="bg-black text-white">Chọn chức danh</option>
-                    <option value="Bí Thư Đoàn Thanh Niên" className="bg-black text-white">Bí Thư Đoàn Thanh Niên</option>
-                    <option value="Bí thư chi đoàn" className="bg-black text-white">Bí thư chi đoàn</option>
-                    <option value="Phó bí thư đoàn thanh niên" className="bg-black text-white">Phó bí thư đoàn thanh niên</option>
-                    <option value="Phó bí thư chi đoàn" className="bg-black text-white">Phó bí thư chi đoàn</option>
-                    <option value="Ủy viên BCH Đoàn thanh niên trung tâm" className="bg-black text-white">Ủy viên BCH Đoàn thanh niên trung tâm</option>
-                    <option value="Ủy viên BCH chi đoàn" className="bg-black text-white">Ủy viên BCH chi đoàn</option>
-                    <option value="Đoàn viên" className="bg-black text-white">Đoàn viên</option>
-                  </select>
-                </div>
-                <div className="flex justify-end gap-3 mt-8">
-                  <button type="button" className="btn btn-secondary" onClick={() => setShowMemberModal(false)}>Hủy</button>
-                  <button type="submit" className="btn btn-primary">Thêm</button>
-                </div>
-              </form>
-            ) : (
+            <form onSubmit={handleAddMember} className="space-y-4">
               <div>
-                <p className="text-sm text-slate-300 mb-4">Tải file mẫu về, nhập danh sách đoàn viên mới và kéo thả vào ô bên dưới.</p>
-                <div className="mb-6">
-                  <button type="button" className="btn btn-secondary w-full py-2 text-sm justify-center border-slate-700 hover:bg-slate-800" onClick={downloadTemplateAdd}>
-                    <Download size={16} className="text-blue-400" /> Tải mẫu thêm đoàn viên
-                  </button>
-                </div>
-                <div 
-                  className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ${dragActive ? 'border-blue-500 bg-blue-500/10 scale-[1.02]' : 'border-slate-600 hover:border-slate-500 hover:bg-slate-800/30'}`}
-                  onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setDragActive(true); }}
-                  onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragActive(false); }}
-                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragActive(true); }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setDragActive(false);
-                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                      handleAddMemberFileProcess(e.dataTransfer.files[0]);
-                    }
-                  }}
-                >
-                  <FileUp size={48} className={`mx-auto mb-4 transition-colors ${dragActive ? 'text-blue-400' : 'text-slate-400'}`} />
-                  <p className="text-base font-medium text-slate-200 mb-1">Kéo thả file Excel vào đây</p>
-                  <p className="text-sm text-slate-500 mb-4">hoặc</p>
-                  <label className="btn btn-primary cursor-pointer inline-flex shadow-lg shadow-blue-500/20">
-                    <span>Chọn file từ máy tính</span>
-                    <input
-                      type="file"
-                      accept=".xlsx,.xls"
-                      className="hidden"
-                      onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          handleAddMemberFileProcess(e.target.files[0]);
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Họ và tên</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  required
+                  value={memberForm.full_name}
+                  onChange={e => setMemberForm({...memberForm, full_name: e.target.value})}
+                  placeholder="Nguyễn Văn A"
+                />
               </div>
-            )}
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Chức danh</label>
+                <select 
+                  className="form-input bg-black text-white" 
+                  required
+                  value={memberForm.title}
+                  onChange={e => setMemberForm({...memberForm, title: e.target.value})}
+                >
+                  <option value="" disabled className="bg-black text-white">Chọn chức danh</option>
+                  <option value="Bí Thư Đoàn Thanh Niên" className="bg-black text-white">Bí Thư Đoàn Thanh Niên</option>
+                  <option value="Bí thư chi đoàn" className="bg-black text-white">Bí thư chi đoàn</option>
+                  <option value="Phó bí thư đoàn thanh niên" className="bg-black text-white">Phó bí thư đoàn thanh niên</option>
+                  <option value="Phó bí thư chi đoàn" className="bg-black text-white">Phó bí thư chi đoàn</option>
+                  <option value="Ủy viên BCH Đoàn thanh niên trung tâm" className="bg-black text-white">Ủy viên BCH Đoàn thanh niên trung tâm</option>
+                  <option value="Ủy viên BCH chi đoàn" className="bg-black text-white">Ủy viên BCH chi đoàn</option>
+                  <option value="Đoàn viên" className="bg-black text-white">Đoàn viên</option>
+                </select>
+              </div>
+              <div className="flex justify-end gap-3 mt-8">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowMemberModal(false)}>Hủy</button>
+                <button type="submit" className="btn btn-primary">Thêm</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1354,7 +1060,7 @@ export default function DepartmentDashboard() {
             </div>
             <form onSubmit={handleTransferMember} className="space-y-4">
               <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-200 text-sm mb-4">
-                <strong>Lưu ý:</strong> Điểm đánh giá của các tháng cũ vẫn được lưu ở Chi đoàn cũ. Việc đánh giá từ tháng này trở đi sẽ được thực hiện ở Chi đoàn mới.
+                <strong>Lưu ý:</strong> Yêu cầu sẽ được gửi tới Chi đoàn đích. Khi Bí thư Chi đoàn mới xác nhận tiếp nhận, đoàn viên cùng toàn bộ dữ liệu điểm các tháng trước sẽ chuyển sang Chi đoàn mới. Nếu từ chối hoặc chưa xử lý, đoàn viên vẫn thuộc Chi đoàn hiện tại.
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Chi đoàn chuyển đến</label>
@@ -1375,61 +1081,6 @@ export default function DepartmentDashboard() {
                 <button type="submit" className="btn btn-primary bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/20 border-transparent">Xác nhận chuyển</button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Import Điểm Excel */}
-      {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="glass-panel w-full max-w-lg p-6 animate-in zoom-in-95 duration-200 border border-slate-700/50 shadow-2xl">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-white">Nhập điểm từ Excel</h3>
-              <button className="text-slate-400 hover:text-white transition-colors" onClick={() => setShowImportModal(false)}>
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="space-y-4 mb-6">
-              <p className="text-sm text-slate-300">Tải danh sách hiện tại về để chấm điểm, sau đó kéo thả file đã điền vào ô bên dưới để cập nhật lên hệ thống.</p>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <button type="button" className="btn btn-secondary flex-1 py-2 text-sm justify-center border-slate-700 hover:bg-slate-800" onClick={downloadTemplateGrade}>
-                  <Download size={16} className="text-emerald-400" /> Tải mẫu xuất chấm điểm
-                </button>
-              </div>
-            </div>
-
-            <div 
-              className={`border-2 border-dashed rounded-xl p-10 text-center transition-all duration-200 ${dragActive ? 'border-blue-500 bg-blue-500/10 scale-[1.02]' : 'border-slate-600 hover:border-slate-500 hover:bg-slate-800/30'}`}
-              onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setDragActive(true); }}
-              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragActive(false); }}
-              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragActive(true); }}
-              onDrop={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setDragActive(false);
-                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                  handleImportGradeFileProcess(e.dataTransfer.files[0]);
-                }
-              }}
-            >
-              <FileUp size={48} className={`mx-auto mb-4 transition-colors ${dragActive ? 'text-blue-400' : 'text-slate-400'}`} />
-              <p className="text-base font-medium text-slate-200 mb-1">Kéo thả file Excel vào đây</p>
-              <p className="text-sm text-slate-500 mb-6">hoặc</p>
-              <label className="btn btn-primary cursor-pointer inline-flex shadow-lg shadow-blue-500/20">
-                <span>Chọn file từ máy tính</span>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls"
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      handleImportGradeFileProcess(e.target.files[0]);
-                    }
-                  }}
-                />
-              </label>
-            </div>
           </div>
         </div>
       )}

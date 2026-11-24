@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, Fragment } from 'react';
+import React, { useState, useEffect, useMemo, Fragment } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, FileDown, Trash2 } from 'lucide-react';
+import { ArrowLeft, FileDown, Trash2, Search } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
 import XLSX from 'xlsx-js-style';
 import { sortMembersByTitle } from '@/lib/sortMembers';
+import { getMaxEvaluationPeriod, getAvailableYears, getAvailableMonths } from '@/lib/evaluationPeriod';
 
 export default function AllDepartmentsDetail() {
   const router = useRouter();
@@ -15,29 +16,12 @@ export default function AllDepartmentsDetail() {
   const [members, setMembers] = useState<any[]>([]);
   const [evaluations, setEvaluations] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
-  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
-  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
+  const { maxYear, maxMonth } = getMaxEvaluationPeriod();
+  const [currentYear, setCurrentYear] = useState(maxYear);
+  const [currentMonth, setCurrentMonth] = useState(maxMonth);
+  const [deptFilter, setDeptFilter] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState<string>('');
   const toast = useToast();
-
-  const handleDeleteMember = async (member: any) => {
-    const confirmed = await toast.confirm(
-      `Bạn có chắc chắn muốn xóa đoàn viên "${member.full_name}"?\nToàn bộ lịch sử điểm đánh giá của đoàn viên này cũng sẽ bị xóa vĩnh viễn.`
-    );
-    if (!confirmed) return;
-
-    try {
-      const { error } = await supabase.from('members').delete().eq('id', member.id);
-      if (error) throw error;
-      toast.success(`Đã xóa đoàn viên "${member.full_name}"`);
-      fetchData();
-    } catch (err: any) {
-      toast.error('Lỗi khi xóa đoàn viên: ' + (err.message || 'Không xác định'));
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, [currentYear, currentMonth]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -75,6 +59,27 @@ export default function AllDepartmentsDetail() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentYear, currentMonth]);
+
+  const handleDeleteMember = async (member: any) => {
+    const confirmed = await toast.confirm(
+      `Bạn có chắc chắn muốn xóa đoàn viên "${member.full_name}"?\nToàn bộ lịch sử điểm đánh giá của đoàn viên này cũng sẽ bị xóa vĩnh viễn.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.from('members').delete().eq('id', member.id);
+      if (error) throw error;
+      toast.success(`Đã xóa đoàn viên "${member.full_name}"`);
+      fetchData();
+    } catch (err: any) {
+      toast.error('Lỗi khi xóa đoàn viên: ' + (err.message || 'Không xác định'));
     }
   };
 
@@ -428,6 +433,43 @@ export default function AllDepartmentsDetail() {
     XLSX.writeFile(wb, `Danh_gia_doan_vien_thang_${currentMonth}_${currentYear}.xlsx`);
   };
 
+  const filteredDepartments = useMemo(() => {
+    const keyword = searchTerm.trim().toLowerCase();
+    return departments
+      .filter((d) => deptFilter === 'all' || d.id === deptFilter)
+      .map((dept) => {
+        const deptMembers = members.filter(
+          (m) =>
+            m.department_id === dept.id &&
+            (!keyword || m.full_name?.toLowerCase().includes(keyword))
+        );
+        return { ...dept, members: deptMembers };
+      })
+      .filter((d) => d.members.length > 0);
+  }, [departments, members, deptFilter, searchTerm]);
+
+  const stats = useMemo(() => {
+    const res = { total: 0, evaluated: 0, A: 0, B: 0, C: 0, D: 0 };
+    filteredDepartments.forEach((dept) => {
+      dept.members.forEach((m: any) => {
+        res.total++;
+        const ev = evaluations[m.id];
+        if (!ev) return;
+        const isRejected = ev.status === 'rejected';
+        const score = isRejected ? ev.bch_total_score : ev.total_score;
+        if (typeof score === 'number' && score > 0) {
+          res.evaluated++;
+          const r = getRank(score);
+          if (r.type === 'A') res.A++;
+          else if (r.type === 'B') res.B++;
+          else if (r.type === 'C') res.C++;
+          else if (r.type === 'D') res.D++;
+        }
+      });
+    });
+    return res;
+  }, [filteredDepartments, evaluations]);
+
   if (loading) {
     return (
       <div className="space-y-6 animate-pulse">
@@ -460,137 +502,260 @@ export default function AllDepartmentsDetail() {
   let globalIndex = 1;
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => router.push('/admin')}
-            className="p-2 bg-slate-800 hover:bg-slate-700 rounded-full transition-colors"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-white">Toàn bộ Trung tâm</h1>
-            <p className="text-slate-400">Xem danh sách đánh giá của tất cả các chi đoàn</p>
+    <div className="flex flex-col gap-2 h-full min-h-0 overflow-hidden animate-in fade-in duration-300">
+      {/* Compact Header + Filters + Inline Stats */}
+      <div className="flex flex-col gap-2 bg-slate-900/90 px-3 py-2 rounded-xl border border-slate-800 shadow-lg shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => router.push('/admin')}
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors text-slate-300 hover:text-white shrink-0"
+              title="Quay lại Dashboard"
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <h1 className="text-base sm:text-lg font-bold text-blue-400 whitespace-nowrap">
+              Chi tiết toàn Trung tâm
+            </h1>
+            <span className="hidden xl:inline text-xs text-slate-400 whitespace-nowrap">
+              (Tháng {currentMonth}/{currentYear})
+            </span>
           </div>
-        </div>
 
-        <div className="flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-2 bg-slate-800/50 p-2 rounded-xl border border-slate-700/50">
-            <span className="text-sm text-slate-400">Năm:</span>
-            <select 
-              className="bg-slate-900 border border-slate-700 text-sm text-white rounded-lg px-2 py-1 focus:outline-none focus:border-blue-500"
+          <div className="flex flex-wrap items-center gap-1.5">
+            <select
+              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2 py-1 text-xs font-medium focus:outline-none focus:border-blue-500"
               value={currentYear}
               onChange={(e) => {
                 const y = parseInt(e.target.value);
                 setCurrentYear(y);
-                if (y === new Date().getFullYear() && currentMonth > new Date().getMonth() + 1) {
-                  setCurrentMonth(new Date().getMonth() + 1);
+                if (y === maxYear && currentMonth > maxMonth) {
+                  setCurrentMonth(maxMonth);
                 }
               }}
             >
-              {Array.from({ length: new Date().getFullYear() - 2024 + 1 }, (_, i) => new Date().getFullYear() - i).map(y => (
-                <option key={y} value={y}>{y}</option>
+              {getAvailableYears(2024).map((y) => (
+                <option key={y} value={y}>
+                  Năm {y}
+                </option>
               ))}
             </select>
-            <span className="text-sm text-slate-400 ml-2">Tháng:</span>
-            <select 
-              className="bg-slate-900 border border-slate-700 text-sm text-white rounded-lg px-2 py-1 focus:outline-none focus:border-blue-500"
+
+            <select
+              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2 py-1 text-xs font-medium focus:outline-none focus:border-blue-500"
               value={currentMonth}
               onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
             >
-              {Array.from({ length: currentYear === new Date().getFullYear() ? new Date().getMonth() + 1 : 12 }, (_, i) => i + 1).map(m => (
-                <option key={m} value={m}>Tháng {m}</option>
+              {getAvailableMonths(currentYear).map((m) => (
+                <option key={m} value={m}>
+                  Tháng {m}
+                </option>
               ))}
             </select>
-          </div>
 
-          <button onClick={exportExcel} className="btn btn-primary flex items-center gap-2 text-sm">
-            <FileDown size={18} />
-            Xuất Excel
-          </button>
+            <select
+              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2 py-1 text-xs font-medium max-w-[190px] focus:outline-none focus:border-blue-500"
+              value={deptFilter}
+              onChange={(e) => setDeptFilter(e.target.value)}
+            >
+              <option value="all">Tất cả chi đoàn</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Tìm đoàn viên..."
+                className="bg-slate-800 border border-slate-700 text-white rounded-lg pl-7 pr-2 py-1 w-36 sm:w-40 text-xs focus:outline-none focus:border-blue-500"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+
+            <button
+              onClick={exportExcel}
+              className="btn btn-secondary py-1 px-2.5 text-xs"
+            >
+              <FileDown size={14} />
+              Xuất Excel
+            </button>
+          </div>
+        </div>
+
+        {/* Compact Stats Bar */}
+        <div className="flex flex-wrap items-center gap-2 pt-1.5 border-t border-slate-800/80 text-xs">
+          <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300">
+            Tổng: <strong className="text-white">{stats.total}</strong>
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-300 border border-blue-500/20">
+            Đã chấm: <strong>{stats.evaluated}</strong>
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+            HTXSNV (A): <strong>{stats.A}</strong>
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-300 border border-sky-500/20">
+            HTTNV (B): <strong>{stats.B}</strong>
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20">
+            HTNV (C): <strong>{stats.C}</strong>
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-300 border border-rose-500/20">
+            KHTNV (D): <strong>{stats.D}</strong>
+          </span>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="glass-panel overflow-hidden border border-slate-700/50 shadow-2xl flex flex-col" style={{ height: 'calc(100vh - 250px)' }}>
+      {/* Table - tự co giãn vừa khít màn hình, ghim header & 3 cột đầu */}
+      <div className="glass-panel overflow-hidden border border-slate-700/50 shadow-2xl w-full flex-1 min-h-0 flex flex-col">
         <div className="overflow-auto flex-1">
-          <table className="w-full text-left border-collapse">
-            <thead className="sticky top-0 z-10 bg-slate-900 shadow-md">
+          <table className="w-full text-left border-separate border-spacing-0">
+            <thead className="sticky top-0 z-30 bg-slate-900">
               <tr>
-                <th className="table-th text-center w-10 border-r border-slate-700/50 text-xs p-1">STT</th>
-                <th className="table-th w-32 border-r border-slate-700/50 text-xs p-1">Họ và tên</th>
-                <th className="table-th w-24 border-r border-slate-700/50 text-xs p-1">Chức danh</th>
-                <th className="table-th text-center border-r border-slate-700/50 text-[10px] leading-tight whitespace-normal w-16 p-1 bg-slate-800/30" title="Lý tưởng cách mạng, nhận thức chính trị">Lý tưởng<br/>nhận thức</th>
-                <th className="table-th text-center border-r border-slate-700/50 text-[10px] leading-tight whitespace-normal w-16 p-1 bg-slate-800/30" title="Đạo đức, lối sống, tác phong đoàn viên">Đạo đức<br/>lối sống</th>
-                <th className="table-th text-center border-r border-slate-700/50 text-[10px] leading-tight whitespace-normal w-16 p-1 bg-slate-800/30" title="Công tác chuyên môn nghiệp vụ">Chuyên môn<br/>nghiệp vụ</th>
-                <th className="table-th text-center border-r border-slate-700/50 text-[10px] leading-tight whitespace-normal w-16 p-1 bg-slate-800/30" title="Rèn luyện sức khoẻ">Rèn luyện<br/>sức khoẻ</th>
-                <th className="table-th text-center border-r border-slate-700/50 text-[10px] leading-tight whitespace-normal w-16 p-1 bg-slate-800/30" title="Ý thức xây dựng tổ chức đoàn, tham gia phong trào đoàn">Ý thức<br/>phong trào</th>
-                <th className="table-th text-center border-r border-slate-700/50 bg-blue-500/10 text-blue-200 text-xs p-1">Tổng<br/>điểm</th>
-                <th className="table-th text-center border-r border-slate-700/50 bg-blue-500/10 text-blue-200 text-xs p-1">Xếp<br/>loại</th>
-                <th className="table-th w-24 border-r border-slate-700/50 text-xs p-1">Ghi chú</th>
-                <th className="table-th text-center w-12 text-xs p-1">Xóa</th>
+                <th className="sticky left-0 z-40 bg-slate-900 table-th text-center w-[42px] min-w-[42px] border-r border-b border-slate-700/80 text-[11px] px-1 py-2">
+                  STT
+                </th>
+                <th className="sticky left-[42px] z-40 bg-slate-900 table-th w-[190px] min-w-[190px] border-r border-b border-slate-700/80 text-[11px] px-2.5 py-2">
+                  Họ và tên
+                </th>
+                <th className="sticky left-[232px] z-40 bg-slate-900 table-th w-[155px] min-w-[155px] border-r-2 border-b border-slate-600 text-[11px] px-2.5 py-2 shadow-[2px_0_6px_rgba(0,0,0,0.4)]">
+                  Chức danh
+                </th>
+                <th
+                  className="bg-slate-800 table-th text-center border-r border-b border-slate-700/80 text-[11px] leading-tight whitespace-normal min-w-[76px] px-1.5 py-2"
+                  title="Lý tưởng cách mạng, nhận thức chính trị"
+                >
+                  Lý tưởng<br />nhận thức
+                </th>
+                <th
+                  className="bg-slate-800 table-th text-center border-r border-b border-slate-700/80 text-[11px] leading-tight whitespace-normal min-w-[76px] px-1.5 py-2"
+                  title="Đạo đức, lối sống, tác phong đoàn viên"
+                >
+                  Đạo đức<br />lối sống
+                </th>
+                <th
+                  className="bg-slate-800 table-th text-center border-r border-b border-slate-700/80 text-[11px] leading-tight whitespace-normal min-w-[78px] px-1.5 py-2"
+                  title="Công tác chuyên môn nghiệp vụ"
+                >
+                  Chuyên môn<br />nghiệp vụ
+                </th>
+                <th
+                  className="bg-slate-800 table-th text-center border-r border-b border-slate-700/80 text-[11px] leading-tight whitespace-normal min-w-[72px] px-1.5 py-2"
+                  title="Rèn luyện sức khoẻ"
+                >
+                  Rèn luyện<br />sức khoẻ
+                </th>
+                <th
+                  className="bg-slate-800 table-th text-center border-r border-b border-slate-700/80 text-[11px] leading-tight whitespace-normal min-w-[76px] px-1.5 py-2"
+                  title="Ý thức xây dựng tổ chức đoàn, tham gia phong trào đoàn"
+                >
+                  Ý thức<br />phong trào
+                </th>
+                <th className="bg-slate-900 table-th text-center border-r border-b border-slate-700/80 text-blue-300 text-[11px] min-w-[68px] px-1.5 py-2">
+                  Tổng điểm
+                </th>
+                <th className="bg-slate-900 table-th text-center border-r border-b border-slate-700/80 text-blue-300 text-[11px] min-w-[78px] px-1.5 py-2">
+                  Xếp loại
+                </th>
+                <th className="bg-slate-900 table-th border-r border-b border-slate-700/80 text-[11px] min-w-[160px] px-2.5 py-2">
+                  Ghi chú
+                </th>
+                <th className="bg-slate-900 table-th text-center border-b border-slate-700/80 text-[11px] w-[44px] min-w-[44px] px-1 py-2">
+                  Xóa
+                </th>
               </tr>
             </thead>
             <tbody>
-              {departments.length === 0 ? (
+              {filteredDepartments.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="text-center p-8 text-slate-400">
-                    Chưa có phòng ban nào
+                  <td colSpan={12} className="text-center py-10 text-slate-400">
+                    Chưa có dữ liệu đoàn viên phù hợp.
                   </td>
                 </tr>
               ) : (
-                departments.map(dept => {
-                  const deptMembers = members.filter(m => m.department_id === dept.id);
-                  if (deptMembers.length === 0) return null;
+                filteredDepartments.map((dept) => (
+                  <Fragment key={dept.id}>
+                    <tr className="bg-slate-800">
+                      <td
+                        colSpan={12}
+                        className="px-3 py-2 font-bold text-blue-300 text-xs uppercase tracking-wide border-b border-slate-700/80 bg-slate-800"
+                      >
+                        <span className="sticky left-3 inline-block">{dept.name}</span>
+                      </td>
+                    </tr>
 
-                  return (
-                    <Fragment key={dept.id}>
-                      {/* Department Group Header */}
-                      <tr className="bg-slate-800/80 border-y border-slate-700/50">
-                        <td colSpan={12} className="p-2 font-bold text-blue-400 text-sm">
-                          {dept.name.toUpperCase()}
-                        </td>
-                      </tr>
-                      
-                      {/* Department Members */}
-                      {deptMembers.map((member) => {
-                        const ev = evaluations[member.id] || {};
-                        const hasEval = ev.id || ev.total_score !== undefined;
-                        const total = ev.total_score || 0;
-                        const rank = getRank(total);
+                    {dept.members.map((member: any) => {
+                      const ev = evaluations[member.id] || {};
+                      const hasEval = Boolean(ev.id || ev.total_score !== undefined);
+                      const isRejected = ev.status === 'rejected';
+                      const s1 = isRejected ? ev.bch_score_1 : ev.score_1;
+                      const s2 = isRejected ? ev.bch_score_2 : ev.score_2;
+                      const s3 = isRejected ? ev.bch_score_3 : ev.score_3;
+                      const s4 = isRejected ? ev.bch_score_4 : ev.score_4;
+                      const s5 = isRejected ? ev.bch_score_5 : ev.score_5;
+                      const total = isRejected ? (ev.bch_total_score ?? 0) : (ev.total_score ?? 0);
+                      const rank = hasEval ? getRank(total) : { text: '-', class: '', type: '' };
+                      const rawNote = isRejected ? (ev.bch_note || ev.note || '') : (ev.note || '');
+                      const displayNote = !hasEval ? (rawNote || 'Đoàn viên mới') : rawNote;
 
-                        return (
-                          <tr key={member.id} className="hover:bg-slate-800/30 transition-colors border-b border-slate-800/50">
-                            <td className="table-td text-center border-r border-slate-700/50 text-slate-400 p-1 text-xs">{globalIndex++}</td>
-                            <td className="table-td font-medium border-r border-slate-700/50 text-white p-1 text-xs">{member.full_name}</td>
-                            <td className="table-td text-slate-400 border-r border-slate-700/50 p-1 text-xs">{member.title}</td>
-                            <td className="table-td text-center border-r border-slate-700/50 p-1 text-xs">{hasEval ? (ev.score_1 ?? 0) : '-'}</td>
-                            <td className="table-td text-center border-r border-slate-700/50 p-1 text-xs">{hasEval ? (ev.score_2 ?? 0) : '-'}</td>
-                            <td className="table-td text-center border-r border-slate-700/50 p-1 text-xs">{hasEval ? (ev.score_3 ?? 0) : '-'}</td>
-                            <td className="table-td text-center border-r border-slate-700/50 p-1 text-xs">{hasEval ? (ev.score_4 ?? 0) : '-'}</td>
-                            <td className="table-td text-center border-r border-slate-700/50 p-1 text-xs">{hasEval ? (ev.score_5 ?? 0) : '-'}</td>
-                            <td className="table-td text-center border-r border-slate-700/50 font-bold text-xs bg-blue-500/5 p-1">{hasEval ? total : '-'}</td>
-                            <td className="table-td text-center border-r border-slate-700/50 bg-blue-500/5 p-1">
-                              <span className={`badge ${rank.class} text-[10px] px-1 py-0.5`}>{rank.text}</span>
+                      return (
+                        <tr key={member.id} className="group hover:bg-slate-800/40 transition-colors">
+                          <td className="sticky left-0 z-20 bg-slate-900 group-hover:bg-slate-800 table-td text-center text-xs text-slate-400 border-r border-b border-slate-800 px-1 py-2 w-[42px] min-w-[42px]">
+                            {globalIndex++}
+                          </td>
+                          <td className="sticky left-[42px] z-20 bg-slate-900 group-hover:bg-slate-800 table-td font-medium text-xs sm:text-sm text-white border-r border-b border-slate-800 px-2.5 py-2 w-[190px] min-w-[190px] whitespace-normal break-words leading-snug">
+                            {member.full_name}
+                          </td>
+                          <td className="sticky left-[232px] z-20 bg-slate-900 group-hover:bg-slate-800 table-td text-xs text-slate-300 border-r-2 border-b border-slate-700 px-2.5 py-2 w-[155px] min-w-[155px] whitespace-normal break-words leading-snug shadow-[2px_0_6px_rgba(0,0,0,0.35)]">
+                            {member.title}
+                          </td>
+                          {[s1, s2, s3, s4, s5].map((score, idx) => (
+                            <td
+                              key={idx}
+                              className={`table-td text-center text-xs border-r border-b border-slate-800 px-1 py-2 ${
+                                isRejected ? 'text-amber-300 font-semibold' : 'text-slate-200'
+                              }`}
+                            >
+                              {hasEval ? (score ?? 0) : <span className="text-slate-600">-</span>}
                             </td>
-                            <td className="table-td text-slate-400 border-r border-slate-700/50 text-xs p-1 truncate max-w-[100px]">{!hasEval ? (ev.note || 'Đoàn viên mới') : (ev.note || '')}</td>
-                            <td className="table-td text-center p-1">
-                              <button
-                                className="p-1.5 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                                title="Xóa đoàn viên"
-                                onClick={() => handleDeleteMember(member)}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </Fragment>
-                  );
-                })
+                          ))}
+                          <td
+                            className={`table-td text-center font-bold text-xs border-r border-b border-slate-800 px-1 py-2 whitespace-nowrap ${
+                              isRejected ? 'text-amber-300' : 'text-blue-300'
+                            }`}
+                          >
+                            {hasEval ? total : <span className="text-slate-600">-</span>}
+                          </td>
+                          <td className="table-td text-center border-r border-b border-slate-800 px-1 py-2 whitespace-nowrap">
+                            {hasEval && total > 0 ? (
+                              <span className={`badge ${rank.class} text-[10px] px-1.5 py-0.5`}>
+                                {rank.text}
+                              </span>
+                            ) : (
+                              <span className="text-slate-600 text-xs">-</span>
+                            )}
+                          </td>
+                          <td className="table-td text-slate-300 border-r border-b border-slate-800 text-xs px-2.5 py-2 whitespace-normal break-words leading-snug">
+                            {displayNote}
+                          </td>
+                          <td className="table-td text-center border-b border-slate-800 px-1 py-2">
+                            <button
+                              className="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                              title="Xóa đoàn viên"
+                              onClick={() => handleDeleteMember(member)}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
+                ))
               )}
             </tbody>
           </table>
