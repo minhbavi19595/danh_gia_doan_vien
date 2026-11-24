@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { FileDown, Search, Award, Trash2 } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
 import XLSX from 'xlsx-js-style';
+import { sortMembersByTitle } from '@/lib/sortMembers';
 
 interface MonthSlot {
   year: number;
@@ -149,7 +150,7 @@ export default function AnnualReviewPage() {
         }
       });
 
-      setMembers(Array.from(dedupByName.values()));
+      setMembers(sortMembersByTitle(Array.from(dedupByName.values())));
       setEvalMap(mapById);
       setNameEvalMap(mapByName);
     } catch (err) {

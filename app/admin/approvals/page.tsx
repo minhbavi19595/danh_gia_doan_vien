@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Check, X, CheckCircle2, XCircle, FileDown, Save, Edit, Trash2 } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
 import XLSX from 'xlsx-js-style';
+import { sortMembersByTitle } from '@/lib/sortMembers';
 
 export default function ApprovalsPage() {
   const router = useRouter();
@@ -44,7 +45,7 @@ export default function ApprovalsPage() {
         .select('*')
         .order('created_at', { ascending: true });
 
-      setMembers(membersData || []);
+      setMembers(sortMembersByTitle(membersData || []));
 
       if (membersData && membersData.length > 0) {
         const { data: evalsData } = await supabase

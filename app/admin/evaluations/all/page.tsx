@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, FileDown, Trash2 } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
 import XLSX from 'xlsx-js-style';
+import { sortMembersByTitle } from '@/lib/sortMembers';
 
 export default function AllDepartmentsDetail() {
   const router = useRouter();
@@ -53,7 +54,7 @@ export default function AllDepartmentsDetail() {
         .select('*')
         .order('created_at', { ascending: true });
 
-      setMembers(membersData || []);
+      setMembers(sortMembersByTitle(membersData || []));
 
       if (membersData && membersData.length > 0) {
         const { data: evalsData } = await supabase

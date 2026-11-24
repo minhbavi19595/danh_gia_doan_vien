@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { Plus, Save, UserPlus, RefreshCw, X, FileDown, FileUp, Upload, Download, Zap } from 'lucide-react';
 import XLSX from 'xlsx-js-style';
+import { sortMembersByTitle } from '@/lib/sortMembers';
 
 export default function DepartmentDashboard() {
   const { user } = useAuth();
@@ -76,7 +77,7 @@ export default function DepartmentDashboard() {
         .eq('department_id', departmentId)
         .order('created_at', { ascending: true });
       
-      setMembers(membersData || []);
+      setMembers(sortMembersByTitle(membersData || []));
 
       const { data: allDepts } = await supabase
         .from('departments')
@@ -542,7 +543,7 @@ export default function DepartmentDashboard() {
             .eq('department_id', departmentId)
             .order('created_at', { ascending: true });
 
-          const updatedMembers = refreshedMembers || [];
+          const updatedMembers = sortMembersByTitle(refreshedMembers || []);
           setMembers(updatedMembers);
           existingMembersMap.clear();
           updatedMembers.forEach((m) => existingMembersMap.set(normalizeName(m.full_name), m));
