@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { Users, TrendingUp, Award, AlertTriangle, Eye } from 'lucide-react';
 import Link from 'next/link';
 import { getMaxEvaluationPeriod, getAvailableYears, getAvailableMonths } from '@/lib/evaluationPeriod';
+import CustomSelect from '@/components/CustomSelect';
 
 export default function AdminDashboard() {
   const { maxYear, maxMonth } = getMaxEvaluationPeriod();
@@ -123,32 +124,26 @@ export default function AdminDashboard() {
         </div>
         
         <div className="flex items-center gap-3 flex-wrap bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
-          <span className="text-slate-400">Năm:</span>
-          <select 
-            className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
+          <span className="text-slate-400 text-sm">Năm:</span>
+          <CustomSelect
+            size="sm"
             value={currentYear}
-            onChange={(e) => {
-              const y = parseInt(e.target.value);
+            onChange={(val) => {
+              const y = parseInt(val);
               setCurrentYear(y);
               if (y === maxYear && currentMonth > maxMonth) {
                 setCurrentMonth(maxMonth);
               }
             }}
-          >
-            {getAvailableYears(2024).map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-          <span className="text-slate-400">Tháng:</span>
-          <select 
-            className="bg-slate-900 border border-slate-700 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
+            options={getAvailableYears(2024).map((y) => ({ value: y, label: String(y) }))}
+          />
+          <span className="text-slate-400 text-sm">Tháng:</span>
+          <CustomSelect
+            size="sm"
             value={currentMonth}
-            onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
-          >
-            {getAvailableMonths(currentYear).map(m => (
-              <option key={m} value={m}>Tháng {m}</option>
-            ))}
-          </select>
+            onChange={(val) => setCurrentMonth(parseInt(val))}
+            options={getAvailableMonths(currentYear).map((m) => ({ value: m, label: `Tháng ${m}` }))}
+          />
         </div>
       </div>
 

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Plus, Key, X, Eye, EyeOff, Lock, Unlock, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
+import CustomSelect from '@/components/CustomSelect';
 
 export default function Departments() {
   const [departments, setDepartments] = useState<any[]>([]);
@@ -50,6 +51,10 @@ export default function Departments() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (formData.role === 'bi_thu_chi_doan' && !formData.department_id) {
+      toast.error('Vui lòng chọn Chi đoàn trực thuộc');
+      return;
+    }
     try {
       setSubmitting(true);
       
@@ -251,31 +256,29 @@ export default function Departments() {
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Vai trò (Role)</label>
-                <select 
-                  className="form-input bg-black text-white" 
-                  required
+                <CustomSelect
+                  size="md"
                   value={formData.role}
-                  onChange={e => setFormData({...formData, role: e.target.value})}
-                >
-                  <option value="bi_thu_chi_doan">Bí thư Chi đoàn</option>
-                  <option value="bi_thu_doan">Bí thư Đoàn Trung tâm</option>
-                </select>
+                  onChange={(val) => setFormData({ ...formData, role: val })}
+                  options={[
+                    { value: 'bi_thu_chi_doan', label: 'Bí thư Chi đoàn' },
+                    { value: 'bi_thu_doan', label: 'Bí thư Đoàn Trung tâm' },
+                  ]}
+                />
               </div>
 
               {formData.role === 'bi_thu_chi_doan' && (
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Chọn Chi đoàn</label>
-                  <select 
-                    className="form-input bg-black text-white" 
-                    required
+                  <CustomSelect
+                    size="md"
+                    placeholder="-- Chọn Chi đoàn (chưa có tài khoản) --"
                     value={formData.department_id}
-                    onChange={e => setFormData({...formData, department_id: e.target.value})}
-                  >
-                    <option value="" disabled className="bg-black text-white">-- Chọn Chi đoàn (chưa có tài khoản) --</option>
-                    {departments.filter(d => !d.user_id).map(d => (
-                      <option key={d.id} value={d.id} className="bg-black text-white">{d.name}</option>
-                    ))}
-                  </select>
+                    onChange={(val) => setFormData({ ...formData, department_id: val })}
+                    options={departments
+                      .filter((d) => !d.user_id)
+                      .map((d) => ({ value: d.id, label: d.name }))}
+                  />
                 </div>
               )}
               <div>

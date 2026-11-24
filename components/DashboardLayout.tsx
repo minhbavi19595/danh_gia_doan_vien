@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, LayoutDashboard, Users, Award } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, Award, History } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -32,7 +32,10 @@ export default function DashboardLayout({
     return null;
   }
 
-  const isFullViewport = pathname.includes('/annual-review') || pathname.includes('/evaluations/all');
+  const isFullViewport =
+    pathname.includes('/annual-review') ||
+    pathname.includes('/evaluations/all') ||
+    pathname.includes('/approvals');
 
   return (
     <div className={`flex flex-col ${isFullViewport ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
@@ -64,6 +67,13 @@ export default function DashboardLayout({
                 >
                   <Users size={18} />
                   Quản lý Tài khoản
+                </Link>
+                <Link 
+                  href="/admin/audit-logs" 
+                  className={`flex items-center gap-2 text-sm font-medium transition-colors ${pathname.includes('/audit-logs') ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+                >
+                  <History size={18} />
+                  Lịch sử sửa điểm
                 </Link>
               </>
             )}

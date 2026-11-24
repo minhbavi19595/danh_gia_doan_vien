@@ -8,6 +8,7 @@ import { useToast } from '@/contexts/ToastContext';
 import XLSX from 'xlsx-js-style';
 import { sortMembersByTitle } from '@/lib/sortMembers';
 import { getMaxEvaluationPeriod, getAvailableYears, getAvailableMonths } from '@/lib/evaluationPeriod';
+import CustomSelect from '@/components/CustomSelect';
 
 export default function DepartmentDetail() {
   const params = useParams();
@@ -503,32 +504,26 @@ export default function DepartmentDetail() {
             {department?.name || 'Đang tải...'}
           </h1>
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-slate-400">Năm:</span>
-            <select
-              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
+            <span className="text-slate-400 text-sm">Năm:</span>
+            <CustomSelect
+              size="sm"
               value={currentYear}
-              onChange={(e) => {
-                const y = parseInt(e.target.value);
+              onChange={(val) => {
+                const y = parseInt(val);
                 setCurrentYear(y);
                 if (y === maxYear && currentMonth > maxMonth) {
                   setCurrentMonth(maxMonth);
                 }
               }}
-            >
-              {getAvailableYears(2024).map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-            <span className="text-slate-400">Tháng:</span>
-            <select
-              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
+              options={getAvailableYears(2024).map((y) => ({ value: y, label: String(y) }))}
+            />
+            <span className="text-slate-400 text-sm">Tháng:</span>
+            <CustomSelect
+              size="sm"
               value={currentMonth}
-              onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
-            >
-              {getAvailableMonths(currentYear).map(m => (
-                <option key={m} value={m}>Tháng {m}</option>
-              ))}
-            </select>
+              onChange={(val) => setCurrentMonth(parseInt(val))}
+              options={getAvailableMonths(currentYear).map((m) => ({ value: m, label: `Tháng ${m}` }))}
+            />
           </div>
         </div>
         <button className="btn btn-secondary" onClick={exportExcel}>

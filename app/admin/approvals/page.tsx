@@ -3,11 +3,12 @@
 import React, { useState, useEffect, Fragment } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Check, X, CheckCircle2, XCircle, FileDown, Save, Edit, Trash2 } from 'lucide-react';
+import { Check, X, CheckCircle2, XCircle, FileDown, Save, Edit, Trash2, Search } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
 import XLSX from 'xlsx-js-style';
 import { sortMembersByTitle } from '@/lib/sortMembers';
 import { getMaxEvaluationPeriod, getAvailableYears, getAvailableMonths } from '@/lib/evaluationPeriod';
+import CustomSelect from '@/components/CustomSelect';
 
 export default function ApprovalsPage() {
   const router = useRouter();
@@ -20,6 +21,8 @@ export default function ApprovalsPage() {
   const { maxYear, maxMonth } = getMaxEvaluationPeriod();
   const [currentYear, setCurrentYear] = useState(maxYear);
   const [currentMonth, setCurrentMonth] = useState(maxMonth);
+  const [deptFilter, setDeptFilter] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState<string>('');
 
   // Inline edit state for rejecting
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -122,13 +125,33 @@ export default function ApprovalsPage() {
     }
   };
 
+  const visibleDepartments =
+    deptFilter === 'all' ? departments : departments.filter((d) => d.id === deptFilter);
+
+  const visibleMemberIds = new Set(
+    members
+      .filter((m) => deptFilter === 'all' || m.department_id === deptFilter)
+      .map((m) => m.id)
+  );
+
   const handleApproveAll = async () => {
-    const confirmed = await toast.confirm('Bạn có chắc chắn muốn duyệt TẤT CẢ các đánh giá đang chờ duyệt trong tháng này?');
+    const selectedDeptName =
+      deptFilter === 'all'
+        ? 'TẤT CẢ các chi đoàn'
+        : `chi đoàn "${departments.find((d) => d.id === deptFilter)?.name || ''}"`;
+    const confirmed = await toast.confirm(
+      `Bạn có chắc chắn muốn duyệt TẤT CẢ các đánh giá đang chờ duyệt của ${selectedDeptName} trong tháng này?`
+    );
     if (!confirmed) return;
     
     try {
       const pendingEvalIds = Object.values(evaluations)
-        .filter(ev => ev.id && (ev.status === 'pending' || !ev.status))
+        .filter(
+          (ev) =>
+            ev.id &&
+            visibleMemberIds.has(ev.member_id) &&
+            (ev.status === 'pending' || !ev.status)
+        )
         .map(ev => ev.id);
         
       if (pendingEvalIds.length === 0) {
@@ -522,44 +545,63 @@ export default function ApprovalsPage() {
   };
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-500 pb-20 flex flex-col h-screen">
+    <div className="flex flex-col gap-2 h-full min-h-0 overflow-hidden animate-in fade-in duration-300">
       {/* Header compact */}
-      <div className="flex flex-row flex-wrap items-center justify-between gap-4 flex-shrink-0 bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-lg">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl sm:text-2xl font-bold whitespace-nowrap text-blue-400">Duyệt đánh giá</h1>
-          <div className="hidden sm:flex items-center gap-2">
-            <select 
-              className="form-input w-auto font-medium py-1.5 bg-slate-800 border-slate-700"
-              value={currentYear}
-              onChange={(e) => {
-                const y = Number(e.target.value);
-                setCurrentYear(y);
-                if (y === maxYear && currentMonth > maxMonth) {
-                  setCurrentMonth(maxMonth);
-                }
-              }}
-            >
-              {getAvailableYears(2024).map(y => (
-                <option key={y} value={y}>Năm {y}</option>
-              ))}
-            </select>
-            <select 
-              className="form-input w-auto font-medium py-1.5 bg-slate-800 border-slate-700"
-              value={currentMonth}
-              onChange={(e) => setCurrentMonth(Number(e.target.value))}
-            >
-              {getAvailableMonths(currentYear).map(m => (
-                <option key={m} value={m}>Tháng {m}</option>
-              ))}
-            </select>
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900/90 px-3 py-2 rounded-xl border border-slate-800 shadow-lg shrink-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-base sm:text-lg font-bold whitespace-nowrap text-blue-400">
+            Duyệt đánh giá
+          </h1>
+          <CustomSelect
+            size="xs"
+            value={currentYear}
+            onChange={(val) => {
+              const y = Number(val);
+              setCurrentYear(y);
+              if (y === maxYear && currentMonth > maxMonth) {
+                setCurrentMonth(maxMonth);
+              }
+            }}
+            options={getAvailableYears(2024).map((y) => ({ value: y, label: `Năm ${y}` }))}
+          />
+          <CustomSelect
+            size="xs"
+            value={currentMonth}
+            onChange={(val) => setCurrentMonth(Number(val))}
+            options={getAvailableMonths(currentYear).map((m) => ({ value: m, label: `Tháng ${m}` }))}
+          />
+          <CustomSelect
+            size="xs"
+            className="max-w-[220px]"
+            value={deptFilter}
+            onChange={(val) => setDeptFilter(val)}
+            options={[
+              { value: 'all', label: 'Tất cả chi đoàn' },
+              ...departments.map((d) => ({ value: d.id, label: d.name })),
+            ]}
+          />
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Tìm đoàn viên..."
+              className="bg-slate-800 border border-slate-700 text-white rounded-lg pl-7 pr-2 py-1 w-36 sm:w-44 text-xs focus:outline-none focus:border-blue-500"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
         </div>
         <div className="flex items-center gap-2">
           {(() => {
-            const pendingCount = Object.values(evaluations).filter(ev => ev.id && (ev.status === 'pending' || !ev.status)).length;
+            const pendingCount = Object.values(evaluations).filter(
+              (ev) =>
+                ev.id &&
+                visibleMemberIds.has(ev.member_id) &&
+                (ev.status === 'pending' || !ev.status)
+            ).length;
             const btnClass = pendingCount > 0 
-              ? "btn bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-600 py-1.5 px-3 text-sm shadow-lg shadow-emerald-500/20 transition-all"
-              : "btn bg-slate-700/50 text-slate-500 border-slate-700 py-1.5 px-3 text-sm cursor-not-allowed";
+              ? "btn bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-600 py-1 px-2.5 text-xs shadow-lg shadow-emerald-500/20 transition-all"
+              : "btn bg-slate-700/50 text-slate-500 border-slate-700 py-1 px-2.5 text-xs cursor-not-allowed";
               
             return (
               <button 
@@ -567,12 +609,12 @@ export default function ApprovalsPage() {
                 onClick={pendingCount > 0 ? handleApproveAll : undefined}
                 disabled={pendingCount === 0}
               >
-                <Check size={16} /> <span className="hidden sm:inline">Duyệt tất cả {pendingCount > 0 && `(${pendingCount})`}</span>
+                <Check size={14} /> <span>Duyệt tất cả {pendingCount > 0 && `(${pendingCount})`}</span>
               </button>
             );
           })()}
-          <button className="btn btn-secondary py-1.5 px-3 text-sm" onClick={exportExcel}>
-            <FileDown size={16} /> <span className="hidden sm:inline">Xuất Excel</span>
+          <button className="btn btn-secondary py-1 px-2.5 text-xs" onClick={exportExcel}>
+            <FileDown size={14} /> <span>Xuất Excel</span>
           </button>
         </div>
       </div>
@@ -582,84 +624,96 @@ export default function ApprovalsPage() {
       ) : departments.length === 0 ? (
         <div className="text-center p-12 text-slate-400">Chưa có chi đoàn nào</div>
       ) : (
-        <div className="glass-panel overflow-auto flex-1 max-h-[calc(100vh-160px)] relative rounded-xl shadow-2xl border border-slate-700/50">
-          <table className="w-full text-left border-collapse min-w-[900px]">
-            <thead className="sticky top-0 z-20 shadow-md">
-              <tr>
-                <th rowSpan={2} className="table-th w-10 text-center border-r border-slate-700 bg-slate-900 text-slate-300">STT</th>
-                <th rowSpan={2} className="table-th min-w-[120px] border-r border-slate-700 bg-slate-900 text-slate-300">Họ và tên</th>
-                <th rowSpan={2} className="table-th min-w-[100px] border-r border-slate-700 bg-slate-900 text-slate-300">Chức danh</th>
-                <th colSpan={6} className="table-th text-center border-r border-slate-700 bg-slate-900 text-blue-400 font-bold border-b-slate-700">Điểm Đánh Giá</th>
-                <th rowSpan={2} className="table-th text-center border-r border-slate-700 min-w-[120px] bg-slate-900 text-slate-300">Ghi chú</th>
-                <th rowSpan={2} className="table-th text-center border-r border-slate-700 w-24 bg-slate-900 text-slate-300">Trạng thái</th>
-                <th rowSpan={2} className="table-th text-center min-w-[120px] bg-slate-900 text-slate-300">Thao tác</th>
-              </tr>
-              <tr>
-                <th className="table-th text-center border-r border-slate-700 text-[10px] p-1 bg-slate-800 w-12" title="Lý tưởng cách mạng, nhận thức chính trị">Lý tưởng<br/>nhận thức</th>
-                <th className="table-th text-center border-r border-slate-700 text-[10px] p-1 bg-slate-800 w-12" title="Đạo đức, lối sống, tác phong đoàn viên">Đạo đức<br/>lối sống</th>
-                <th className="table-th text-center border-r border-slate-700 text-[10px] p-1 bg-slate-800 w-12" title="Công tác chuyên môn nghiệp vụ">Chuyên môn<br/>nghiệp vụ</th>
-                <th className="table-th text-center border-r border-slate-700 text-[10px] p-1 bg-slate-800 w-12" title="Rèn luyện sức khoẻ">Rèn luyện<br/>sức khoẻ</th>
-                <th className="table-th text-center border-r border-slate-700 text-[10px] p-1 bg-slate-800 w-12" title="Ý thức xây dựng tổ chức đoàn, tham gia phong trào đoàn">Ý thức<br/>phong trào</th>
-                <th className="table-th text-center border-r border-slate-700 text-xs font-bold bg-slate-800 w-12">Tổng</th>
-              </tr>
-            </thead>
-            <tbody>
-              {departments.map(dept => {
-                const deptMembers = members.filter(m => m.department_id === dept.id);
-                if (deptMembers.length === 0) return null;
+        <div className="glass-panel overflow-hidden border border-slate-700/50 shadow-2xl w-full flex-1 min-h-0 flex flex-col">
+          <div className="overflow-auto flex-1">
+            <table className="w-full text-left border-separate border-spacing-0">
+              <thead className="sticky top-0 z-30 bg-slate-900">
+                <tr>
+                  <th rowSpan={2} className="sticky left-0 z-40 bg-slate-900 table-th text-center w-[42px] min-w-[42px] border-r border-b border-slate-700/80 text-[11px] px-1 py-2">STT</th>
+                  <th rowSpan={2} className="sticky left-[42px] z-40 bg-slate-900 table-th w-[190px] min-w-[190px] border-r border-b border-slate-700/80 text-[11px] px-2.5 py-2">Họ và tên</th>
+                  <th rowSpan={2} className="sticky left-[232px] z-40 bg-slate-900 table-th w-[155px] min-w-[155px] border-r-2 border-b border-slate-600 text-[11px] px-2.5 py-2 shadow-[2px_0_6px_rgba(0,0,0,0.4)]">Chức danh</th>
+                  <th colSpan={6} className="bg-slate-800 table-th text-center border-r border-b border-slate-700/80 text-blue-300 font-bold text-[11px] py-1.5">Điểm Đánh Giá</th>
+                  <th rowSpan={2} className="bg-slate-900 table-th text-center border-r border-b border-slate-700/80 min-w-[160px] text-[11px] px-2 py-2">Ghi chú</th>
+                  <th rowSpan={2} className="bg-slate-900 table-th text-center border-r border-b border-slate-700/80 w-24 min-w-[96px] text-[11px] px-1 py-2">Trạng thái</th>
+                  <th rowSpan={2} className="bg-slate-900 table-th text-center border-b border-slate-700/80 w-32 min-w-[120px] text-[11px] px-1 py-2">Thao tác</th>
+                </tr>
+                <tr>
+                  <th className="bg-slate-800 table-th text-center border-r border-b border-slate-700/80 text-[11px] leading-tight whitespace-normal min-w-[66px] px-1 py-1.5" title="Lý tưởng cách mạng, nhận thức chính trị">Lý tưởng<br/>nhận thức</th>
+                  <th className="bg-slate-800 table-th text-center border-r border-b border-slate-700/80 text-[11px] leading-tight whitespace-normal min-w-[66px] px-1 py-1.5" title="Đạo đức, lối sống, tác phong đoàn viên">Đạo đức<br/>lối sống</th>
+                  <th className="bg-slate-800 table-th text-center border-r border-b border-slate-700/80 text-[11px] leading-tight whitespace-normal min-w-[68px] px-1 py-1.5" title="Công tác chuyên môn nghiệp vụ">Chuyên môn<br/>nghiệp vụ</th>
+                  <th className="bg-slate-800 table-th text-center border-r border-b border-slate-700/80 text-[11px] leading-tight whitespace-normal min-w-[64px] px-1 py-1.5" title="Rèn luyện sức khoẻ">Rèn luyện<br/>sức khoẻ</th>
+                  <th className="bg-slate-800 table-th text-center border-r border-b border-slate-700/80 text-[11px] leading-tight whitespace-normal min-w-[66px] px-1 py-1.5" title="Ý thức xây dựng tổ chức đoàn, tham gia phong trào đoàn">Ý thức<br/>phong trào</th>
+                  <th className="bg-slate-800 table-th text-center border-r border-b border-slate-700/80 text-[11px] font-bold text-blue-300 min-w-[58px] px-1 py-1.5">Tổng</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleDepartments.map(dept => {
+                  const kw = searchTerm.trim().toLowerCase();
+                  const deptMembers = members.filter(
+                    m =>
+                      m.department_id === dept.id &&
+                      (!kw || m.full_name?.toLowerCase().includes(kw) || m.title?.toLowerCase().includes(kw))
+                  );
+                  if (deptMembers.length === 0) return null;
 
-                const hasAnyEval = deptMembers.some(member => {
-                  const ev = evaluations[member.id];
-                  return ev && (ev.id || ev.total_score !== undefined);
-                });
+                  const hasAnyEval = deptMembers.some(member => {
+                    const ev = evaluations[member.id];
+                    return ev && (ev.id || ev.total_score !== undefined);
+                  });
 
-                return (
-                  <Fragment key={dept.id}>
-                    <tr className="bg-blue-900/20">
-                      <td colSpan={12} className="px-4 py-2 border-y border-slate-700/50 font-bold text-[13px] text-blue-300 uppercase tracking-wider">
-                        {dept.name}
-                      </td>
-                    </tr>
-                    {!hasAnyEval ? (
-                      <tr>
-                        <td colSpan={12} className="px-4 py-8 text-center text-slate-500 italic border-b border-slate-700/50">
-                          Chưa có bản chấm điểm
+                  return (
+                    <Fragment key={dept.id}>
+                      <tr className="bg-slate-800">
+                        <td colSpan={12} className="px-3 py-2 border-b border-slate-700/80 font-bold text-xs text-blue-300 uppercase tracking-wide bg-slate-800">
+                          <span className="sticky left-3 inline-block">{dept.name}</span>
                         </td>
                       </tr>
-                    ) : (
-                      deptMembers.map((member, index) => {
-                        const ev = evaluations[member.id] || {};
-                      const hasEval = ev.id || ev.total_score !== undefined;
-                      const isPending = !ev.status || ev.status === 'pending';
-                      const isRejected = ev.status === 'rejected';
-                      const isEditing = editingId === member.id;
-                      
-                      // Active scores logic
-                      const s1 = isEditing ? rejectForm.bch_score_1 : (isRejected ? ev.bch_score_1 : ev.score_1);
-                      const s2 = isEditing ? rejectForm.bch_score_2 : (isRejected ? ev.bch_score_2 : ev.score_2);
-                      const s3 = isEditing ? rejectForm.bch_score_3 : (isRejected ? ev.bch_score_3 : ev.score_3);
-                      const s4 = isEditing ? rejectForm.bch_score_4 : (isRejected ? ev.bch_score_4 : ev.score_4);
-                      const s5 = isEditing ? rejectForm.bch_score_5 : (isRejected ? ev.bch_score_5 : ev.score_5);
-                      
-                      const computedBchTotal = rejectForm.bch_score_1 + rejectForm.bch_score_2 + rejectForm.bch_score_3 + rejectForm.bch_score_4 + rejectForm.bch_score_5;
-                      const total = isEditing ? computedBchTotal : (isRejected ? ev.bch_total_score : ev.total_score);
-                      const note = isEditing ? rejectForm.bch_note : (isRejected ? ev.bch_note : ev.note);
-                      
-                      // Row highlight if editing or rejected
-                      const trClass = isEditing 
-                        ? 'bg-amber-900/20 border-l-2 border-l-amber-400 shadow-inner' 
-                        : isRejected 
-                          ? 'bg-red-900/10 hover:bg-red-900/20 transition-colors border-l-2 border-l-red-500/50' 
-                          : 'hover:bg-slate-800/40 transition-colors border-l-2 border-l-transparent';
+                      {!hasAnyEval ? (
+                        <tr>
+                          <td colSpan={12} className="px-4 py-8 text-center text-slate-500 italic border-b border-slate-800">
+                            Chưa có bản chấm điểm
+                          </td>
+                        </tr>
+                      ) : (
+                        deptMembers.map((member, index) => {
+                          const ev = evaluations[member.id] || {};
+                        const hasEval = ev.id || ev.total_score !== undefined;
+                        const isPending = !ev.status || ev.status === 'pending';
+                        const isRejected = ev.status === 'rejected';
+                        const isEditing = editingId === member.id;
+                        
+                        // Active scores logic
+                        const s1 = isEditing ? rejectForm.bch_score_1 : (isRejected ? ev.bch_score_1 : ev.score_1);
+                        const s2 = isEditing ? rejectForm.bch_score_2 : (isRejected ? ev.bch_score_2 : ev.score_2);
+                        const s3 = isEditing ? rejectForm.bch_score_3 : (isRejected ? ev.bch_score_3 : ev.score_3);
+                        const s4 = isEditing ? rejectForm.bch_score_4 : (isRejected ? ev.bch_score_4 : ev.score_4);
+                        const s5 = isEditing ? rejectForm.bch_score_5 : (isRejected ? ev.bch_score_5 : ev.score_5);
+                        
+                        const computedBchTotal = rejectForm.bch_score_1 + rejectForm.bch_score_2 + rejectForm.bch_score_3 + rejectForm.bch_score_4 + rejectForm.bch_score_5;
+                        const total = isEditing ? computedBchTotal : (isRejected ? ev.bch_total_score : ev.total_score);
+                        const note = isEditing ? rejectForm.bch_note : (isRejected ? ev.bch_note : ev.note);
+                        
+                        // Row highlight if editing or rejected
+                        const trClass = isEditing 
+                          ? 'group bg-amber-900/20 shadow-inner' 
+                          : isRejected 
+                            ? 'group bg-red-900/10 hover:bg-red-900/20 transition-colors' 
+                            : 'group hover:bg-slate-800/40 transition-colors';
 
-                      const textClass = isEditing || isRejected ? 'text-amber-400 font-medium' : 'text-slate-300';
-                      const totalClass = isEditing || isRejected ? 'text-amber-400 font-bold' : 'text-white font-bold';
+                        const stickyBg = isEditing
+                          ? 'bg-slate-900'
+                          : isRejected
+                            ? 'bg-slate-900 group-hover:bg-slate-800'
+                            : 'bg-slate-900 group-hover:bg-slate-800';
 
-                      return (
-                        <tr key={member.id} className={trClass}>
-                          <td className="table-td text-center border-r border-slate-700/50">{index + 1}</td>
-                          <td className="table-td font-medium border-r border-slate-700/50 text-white">{member.full_name}</td>
-                          <td className="table-td text-slate-400 border-r border-slate-700/50 text-xs">{member.title}</td>
+                        const textClass = isEditing || isRejected ? 'text-amber-400 font-medium' : 'text-slate-300';
+                        const totalClass = isEditing || isRejected ? 'text-amber-400 font-bold' : 'text-blue-300 font-bold';
+
+                        return (
+                          <tr key={member.id} className={trClass}>
+                            <td className={`sticky left-0 z-20 ${stickyBg} table-td text-center text-xs text-slate-400 border-r border-b border-slate-800 px-1 py-2 w-[42px] min-w-[42px]`}>{index + 1}</td>
+                            <td className={`sticky left-[42px] z-20 ${stickyBg} table-td font-medium text-xs sm:text-sm text-white border-r border-b border-slate-800 px-2.5 py-2 w-[190px] min-w-[190px] whitespace-normal break-words leading-snug`}>{member.full_name}</td>
+                            <td className={`sticky left-[232px] z-20 ${stickyBg} table-td text-xs text-slate-300 border-r-2 border-b border-slate-700 px-2.5 py-2 w-[155px] min-w-[155px] whitespace-normal break-words leading-snug shadow-[2px_0_6px_rgba(0,0,0,0.35)]`}>{member.title}</td>
                           
                           {/* Điểm 1-5 */}
                           {[
@@ -791,9 +845,10 @@ export default function ApprovalsPage() {
                   </Fragment>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+                </tbody>
+              </table>
+            </div>
+          </div>
       )}
     </div>
   );

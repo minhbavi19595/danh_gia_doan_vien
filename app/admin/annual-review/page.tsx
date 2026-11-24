@@ -6,6 +6,7 @@ import { FileDown, Search, Award, Trash2, Trophy, X, ArrowUpDown } from 'lucide-
 import { useToast } from '@/contexts/ToastContext';
 import XLSX from 'xlsx-js-style';
 import { sortMembersByTitle, getTitlePriority } from '@/lib/sortMembers';
+import CustomSelect from '@/components/CustomSelect';
 
 interface MonthSlot {
   year: number;
@@ -25,6 +26,7 @@ export default function AnnualReviewPage() {
   const [deptFilter, setDeptFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [minMonthsForA, setMinMonthsForA] = useState<number>(8);
+  const [isPeriodLocked, setIsPeriodLocked] = useState<boolean>(false);
   const [showTopModal, setShowTopModal] = useState<boolean>(false);
   const [topLimit, setTopLimit] = useState<string>('10');
   const [topDeptFilter, setTopDeptFilter] = useState<string>('all');
@@ -103,11 +105,30 @@ export default function AnnualReviewPage() {
         return all;
       };
 
-      const [{ data: deptsData }, allMembers, evalsData] = await Promise.all([
+      // Tự động chốt kỳ cũ nếu đã đến/qua 19/11 (bỏ qua êm nếu DB chưa chạy migration 10)
+      await supabase.rpc('ensure_closed_periods').then(() => {}, () => {});
+
+      const [{ data: deptsData }, { data: lockRow }, { data: snapshotRows }, liveMembers, evalsData] = await Promise.all([
         supabase.from('departments').select('id, name').order('name', { ascending: true }),
+        supabase.from('locked_periods').select('review_year').eq('review_year', selectedYear).maybeSingle(),
+        supabase.from('period_member_snapshots').select('*').eq('review_year', selectedYear),
         fetchAllMembers(),
         fetchAllEvaluations(),
       ]);
+
+      const locked = Boolean(lockRow) && (snapshotRows?.length || 0) > 0;
+      setIsPeriodLocked(locked);
+
+      // Nếu kỳ này đã chốt (có snapshot), dùng đúng danh sách tổ & chức danh đã chốt của kỳ đó
+      const allMembers = locked
+        ? (snapshotRows || []).map((s: any) => ({
+            id: s.member_id,
+            department_id: s.department_id,
+            full_name: s.full_name,
+            title: s.title,
+            created_at: s.created_at,
+          }))
+        : liveMembers;
 
       setDepartments(deptsData || []);
 
@@ -713,52 +734,48 @@ export default function AnnualReviewPage() {
             <h1 className="text-base sm:text-lg font-bold text-blue-400 whitespace-nowrap">
               Bình xét cuối năm {selectedYear}
             </h1>
+            {isPeriodLocked && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">
+                Đã chốt kỳ (19/11)
+              </span>
+            )}
             <span className="hidden xl:inline text-xs text-slate-400 whitespace-nowrap">
               (T12/{selectedYear - 1} – T11/{selectedYear})
             </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
-            <select
-              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2 py-1 text-xs font-medium focus:outline-none focus:border-blue-500"
+            <CustomSelect
+              size="xs"
               value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-            >
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  Năm {y} (T12/{String(y - 1).slice(-2)}-T11/{String(y).slice(-2)})
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setSelectedYear(Number(val))}
+              options={yearOptions.map((y) => ({
+                value: y,
+                label: `Năm ${y} (T12/${String(y - 1).slice(-2)}-T11/${String(y).slice(-2)})`,
+              }))}
+            />
 
-            <select
-              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2 py-1 text-xs font-medium max-w-[190px] focus:outline-none focus:border-blue-500"
+            <CustomSelect
+              size="xs"
+              className="max-w-[200px]"
               value={deptFilter}
-              onChange={(e) => setDeptFilter(e.target.value)}
-            >
-              <option value="all">Tất cả chi đoàn</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setDeptFilter(val)}
+              options={[
+                { value: 'all', label: 'Tất cả chi đoàn' },
+                ...departments.map((d) => ({ value: d.id, label: d.name })),
+              ]}
+            />
 
-            <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs">
-              <span className="text-slate-400 whitespace-nowrap">HTXSNV ≥</span>
-              <select
-                className="bg-transparent text-emerald-300 font-semibold focus:outline-none cursor-pointer"
-                value={minMonthsForA}
-                onChange={(e) => setMinMonthsForA(Number(e.target.value))}
-                title="Số tháng đánh giá tối thiểu để được xếp loại HTXSNV (nếu ít hơn tối đa chỉ được HTTNV)"
-              >
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                  <option key={m} value={m} className="bg-slate-800 text-white">
-                    {m} tháng
-                  </option>
-                ))}
-              </select>
-            </div>
+            <CustomSelect
+              size="xs"
+              value={minMonthsForA}
+              onChange={(val) => setMinMonthsForA(Number(val))}
+              title="Số tháng đánh giá tối thiểu để được xếp loại HTXSNV (nếu ít hơn tối đa chỉ được HTTNV)"
+              options={Array.from({ length: 12 }, (_, i) => i + 1).map((m) => ({
+                value: m,
+                label: `HTXSNV ≥ ${m} tháng`,
+              }))}
+            />
 
             <div className="relative">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1028,18 +1045,16 @@ export default function AnnualReviewPage() {
                   })}
                 </div>
 
-                <select
-                  className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2.5 py-1 text-xs max-w-[200px] focus:outline-none focus:border-amber-500"
+                <CustomSelect
+                  size="xs"
+                  className="max-w-[210px]"
                   value={topDeptFilter}
-                  onChange={(e) => setTopDeptFilter(e.target.value)}
-                >
-                  <option value="all">Tất cả chi đoàn</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setTopDeptFilter(val)}
+                  options={[
+                    { value: 'all', label: 'Tất cả chi đoàn' },
+                    ...departments.map((d) => ({ value: d.id, label: d.name })),
+                  ]}
+                />
 
                 <button
                   onClick={() => setTopSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}

@@ -8,6 +8,7 @@ import { Save, UserPlus, RefreshCw, X, FileDown, Zap, Check, ArrowRightLeft, Sea
 import XLSX from 'xlsx-js-style';
 import { sortMembersByTitle } from '@/lib/sortMembers';
 import { getMaxEvaluationPeriod, getAvailableYears, getAvailableMonths } from '@/lib/evaluationPeriod';
+import CustomSelect from '@/components/CustomSelect';
 
 export default function DepartmentDashboard() {
   const { user } = useAuth();
@@ -146,21 +147,69 @@ export default function DepartmentDashboard() {
     }
   };
 
+  const checkDuplicateNameAndConfirm = async (fullName: string, excludeMemberId?: string) => {
+    const cleanName = fullName.trim().replace(/\s+/g, ' ');
+    const norm = cleanName.normalize('NFC').toLowerCase();
+
+    let duplicates: { full_name: string; department_name: string }[] = [];
+
+    try {
+      const { data, error } = await supabase.rpc('check_duplicate_member_name', {
+        p_full_name: cleanName,
+        p_exclude_member_id: excludeMemberId || null,
+      });
+      if (!error && Array.isArray(data)) {
+        duplicates = data;
+      }
+    } catch {
+      // Fallback kiểm tra cục bộ trong chi đoàn hiện tại nếu DB chưa chạy RPC
+    }
+
+    if (duplicates.length === 0) {
+      const localDups = members.filter(
+        (m) =>
+          m.id !== excludeMemberId &&
+          String(m.full_name || '')
+            .normalize('NFC')
+            .trim()
+            .replace(/\s+/g, ' ')
+            .toLowerCase() === norm
+      );
+      if (localDups.length > 0) {
+        duplicates = localDups.map((m) => ({
+          full_name: m.full_name,
+          department_name: departmentName || 'Chi đoàn hiện tại',
+        }));
+      }
+    }
+
+    if (duplicates.length === 0) return true;
+
+    const deptList = Array.from(new Set(duplicates.map((d) => d.department_name))).join(', ');
+    return await toast.confirm(
+      `Cảnh báo trùng tên: "${cleanName}" đã tồn tại tại ${deptList}.\nBạn nên thêm ký tự phân biệt (VD: "${cleanName} A" hoặc "${cleanName} B") để tránh nhầm lẫn khi tổng hợp.\n\nBạn vẫn muốn giữ nguyên tên này?`
+    );
+  };
+
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const cleanName = memberForm.full_name.trim().replace(/\s+/g, ' ');
+      const ok = await checkDuplicateNameAndConfirm(cleanName);
+      if (!ok) return;
+
       const { error } = await supabase
         .from('members')
         .insert([{
           department_id: departmentId,
-          full_name: memberForm.full_name.trim(),
+          full_name: cleanName,
           title: memberForm.title.trim() || 'Đoàn viên'
         }]);
       
       if (error) throw error;
       setShowMemberModal(false);
       setMemberForm({ full_name: '', title: '' });
-      toast.success('Thêm đoàn viên thành công (tự động đồng bộ lịch sử điểm nếu chuyển từ chi đoàn khác)!');
+      toast.success('Thêm đoàn viên thành công!');
       fetchData();
     } catch (err: any) {
       toast.error('Lỗi: ' + err.message);
@@ -170,10 +219,14 @@ export default function DepartmentDashboard() {
   const handleEditMember = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const cleanName = editMemberForm.full_name.trim().replace(/\s+/g, ' ');
+      const ok = await checkDuplicateNameAndConfirm(cleanName, editMemberForm.id);
+      if (!ok) return;
+
       const { error } = await supabase
         .from('members')
         .update({
-          full_name: editMemberForm.full_name,
+          full_name: cleanName,
           title: editMemberForm.title
         })
         .eq('id', editMemberForm.id);
@@ -704,32 +757,26 @@ export default function DepartmentDashboard() {
         <div>
           <h1 className="text-2xl font-bold mb-2">Đánh giá Đoàn viên</h1>
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-slate-400">Năm:</span>
-            <select 
-              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
+            <span className="text-slate-400 text-sm">Năm:</span>
+            <CustomSelect
+              size="sm"
               value={currentYear}
-              onChange={(e) => {
-                const y = parseInt(e.target.value);
+              onChange={(val) => {
+                const y = parseInt(val);
                 setCurrentYear(y);
                 if (y === maxYear && currentMonth > maxMonth) {
                   setCurrentMonth(maxMonth);
                 }
               }}
-            >
-              {getAvailableYears(2024).map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-            <span className="text-slate-400">Tháng:</span>
-            <select 
-              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
+              options={getAvailableYears(2024).map((y) => ({ value: y, label: String(y) }))}
+            />
+            <span className="text-slate-400 text-sm">Tháng:</span>
+            <CustomSelect
+              size="sm"
               value={currentMonth}
-              onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
-            >
-              {getAvailableMonths(currentYear).map(m => (
-                <option key={m} value={m}>Tháng {m}</option>
-              ))}
-            </select>
+              onChange={(val) => setCurrentMonth(parseInt(val))}
+              options={getAvailableMonths(currentYear).map((m) => ({ value: m, label: `Tháng ${m}` }))}
+            />
             <div className="relative">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -974,21 +1021,21 @@ export default function DepartmentDashboard() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Chức danh</label>
-                <select 
-                  className="form-input bg-black text-white" 
-                  required
+                <CustomSelect
+                  size="md"
+                  placeholder="Chọn chức danh"
                   value={memberForm.title}
-                  onChange={e => setMemberForm({...memberForm, title: e.target.value})}
-                >
-                  <option value="" disabled className="bg-black text-white">Chọn chức danh</option>
-                  <option value="Bí Thư Đoàn Thanh Niên" className="bg-black text-white">Bí Thư Đoàn Thanh Niên</option>
-                  <option value="Bí thư chi đoàn" className="bg-black text-white">Bí thư chi đoàn</option>
-                  <option value="Phó bí thư đoàn thanh niên" className="bg-black text-white">Phó bí thư đoàn thanh niên</option>
-                  <option value="Phó bí thư chi đoàn" className="bg-black text-white">Phó bí thư chi đoàn</option>
-                  <option value="Ủy viên BCH Đoàn thanh niên trung tâm" className="bg-black text-white">Ủy viên BCH Đoàn thanh niên trung tâm</option>
-                  <option value="Ủy viên BCH chi đoàn" className="bg-black text-white">Ủy viên BCH chi đoàn</option>
-                  <option value="Đoàn viên" className="bg-black text-white">Đoàn viên</option>
-                </select>
+                  onChange={(val) => setMemberForm({ ...memberForm, title: val })}
+                  options={[
+                    { value: 'Bí Thư Đoàn Thanh Niên', label: 'Bí Thư Đoàn Thanh Niên' },
+                    { value: 'Phó bí thư đoàn thanh niên', label: 'Phó bí thư đoàn thanh niên' },
+                    { value: 'Ủy viên BCH Đoàn thanh niên trung tâm', label: 'Ủy viên BCH Đoàn thanh niên trung tâm' },
+                    { value: 'Bí thư chi đoàn', label: 'Bí thư chi đoàn' },
+                    { value: 'Phó bí thư chi đoàn', label: 'Phó bí thư chi đoàn' },
+                    { value: 'Ủy viên BCH chi đoàn', label: 'Ủy viên BCH chi đoàn' },
+                    { value: 'Đoàn viên', label: 'Đoàn viên' },
+                  ]}
+                />
               </div>
               <div className="flex justify-end gap-3 mt-8">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowMemberModal(false)}>Hủy</button>
@@ -1023,21 +1070,21 @@ export default function DepartmentDashboard() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Chức danh</label>
-                <select 
-                  className="form-input bg-black text-white" 
-                  required
+                <CustomSelect
+                  size="md"
+                  placeholder="Chọn chức danh"
                   value={editMemberForm.title}
-                  onChange={e => setEditMemberForm({...editMemberForm, title: e.target.value})}
-                >
-                  <option value="" disabled className="bg-black text-white">Chọn chức danh</option>
-                  <option value="Bí Thư Đoàn Thanh Niên" className="bg-black text-white">Bí Thư Đoàn Thanh Niên</option>
-                  <option value="Bí thư chi đoàn" className="bg-black text-white">Bí thư chi đoàn</option>
-                  <option value="Phó bí thư đoàn thanh niên" className="bg-black text-white">Phó bí thư đoàn thanh niên</option>
-                  <option value="Phó bí thư chi đoàn" className="bg-black text-white">Phó bí thư chi đoàn</option>
-                  <option value="Ủy viên BCH Đoàn thanh niên trung tâm" className="bg-black text-white">Ủy viên BCH Đoàn thanh niên trung tâm</option>
-                  <option value="Ủy viên BCH chi đoàn" className="bg-black text-white">Ủy viên BCH chi đoàn</option>
-                  <option value="Đoàn viên" className="bg-black text-white">Đoàn viên</option>
-                </select>
+                  onChange={(val) => setEditMemberForm({ ...editMemberForm, title: val })}
+                  options={[
+                    { value: 'Bí Thư Đoàn Thanh Niên', label: 'Bí Thư Đoàn Thanh Niên' },
+                    { value: 'Phó bí thư đoàn thanh niên', label: 'Phó bí thư đoàn thanh niên' },
+                    { value: 'Ủy viên BCH Đoàn thanh niên trung tâm', label: 'Ủy viên BCH Đoàn thanh niên trung tâm' },
+                    { value: 'Bí thư chi đoàn', label: 'Bí thư chi đoàn' },
+                    { value: 'Phó bí thư chi đoàn', label: 'Phó bí thư chi đoàn' },
+                    { value: 'Ủy viên BCH chi đoàn', label: 'Ủy viên BCH chi đoàn' },
+                    { value: 'Đoàn viên', label: 'Đoàn viên' },
+                  ]}
+                />
               </div>
               <div className="flex justify-end gap-3 mt-8">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowEditModal(false)}>Hủy</button>
@@ -1064,17 +1111,15 @@ export default function DepartmentDashboard() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Chi đoàn chuyển đến</label>
-                <select 
-                  className="form-input bg-black text-white" 
-                  required
+                <CustomSelect
+                  size="md"
+                  placeholder="-- Chọn Chi đoàn mới --"
                   value={targetDepartmentId}
-                  onChange={e => setTargetDepartmentId(e.target.value)}
-                >
-                  <option value="" disabled className="bg-black text-white">-- Chọn Chi đoàn mới --</option>
-                  {allDepartments.filter(d => d.id !== departmentId).map(dept => (
-                    <option key={dept.id} value={dept.id} className="bg-black text-white">{dept.name}</option>
-                  ))}
-                </select>
+                  onChange={(val) => setTargetDepartmentId(val)}
+                  options={allDepartments
+                    .filter((d) => d.id !== departmentId)
+                    .map((dept) => ({ value: dept.id, label: dept.name }))}
+                />
               </div>
               <div className="flex justify-end gap-3 mt-8">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowTransferModal(false)}>Hủy</button>

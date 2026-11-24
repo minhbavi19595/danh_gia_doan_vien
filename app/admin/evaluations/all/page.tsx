@@ -8,6 +8,7 @@ import { useToast } from '@/contexts/ToastContext';
 import XLSX from 'xlsx-js-style';
 import { sortMembersByTitle } from '@/lib/sortMembers';
 import { getMaxEvaluationPeriod, getAvailableYears, getAvailableMonths } from '@/lib/evaluationPeriod';
+import CustomSelect from '@/components/CustomSelect';
 
 export default function AllDepartmentsDetail() {
   const router = useRouter();
@@ -523,48 +524,36 @@ export default function AllDepartmentsDetail() {
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
-            <select
-              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2 py-1 text-xs font-medium focus:outline-none focus:border-blue-500"
+            <CustomSelect
+              size="xs"
               value={currentYear}
-              onChange={(e) => {
-                const y = parseInt(e.target.value);
+              onChange={(val) => {
+                const y = parseInt(val);
                 setCurrentYear(y);
                 if (y === maxYear && currentMonth > maxMonth) {
                   setCurrentMonth(maxMonth);
                 }
               }}
-            >
-              {getAvailableYears(2024).map((y) => (
-                <option key={y} value={y}>
-                  Năm {y}
-                </option>
-              ))}
-            </select>
+              options={getAvailableYears(2024).map((y) => ({ value: y, label: `Năm ${y}` }))}
+            />
 
-            <select
-              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2 py-1 text-xs font-medium focus:outline-none focus:border-blue-500"
+            <CustomSelect
+              size="xs"
               value={currentMonth}
-              onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
-            >
-              {getAvailableMonths(currentYear).map((m) => (
-                <option key={m} value={m}>
-                  Tháng {m}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setCurrentMonth(parseInt(val))}
+              options={getAvailableMonths(currentYear).map((m) => ({ value: m, label: `Tháng ${m}` }))}
+            />
 
-            <select
-              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2 py-1 text-xs font-medium max-w-[190px] focus:outline-none focus:border-blue-500"
+            <CustomSelect
+              size="xs"
+              className="max-w-[200px]"
               value={deptFilter}
-              onChange={(e) => setDeptFilter(e.target.value)}
-            >
-              <option value="all">Tất cả chi đoàn</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setDeptFilter(val)}
+              options={[
+                { value: 'all', label: 'Tất cả chi đoàn' },
+                ...departments.map((d) => ({ value: d.id, label: d.name })),
+              ]}
+            />
 
             <div className="relative">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
