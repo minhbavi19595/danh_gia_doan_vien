@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useMemo, Fragment } from 'react';
 import { supabase } from '@/lib/supabase';
-import { FileDown, Search, Award } from 'lucide-react';
+import { FileDown, Search, Award, Trash2 } from 'lucide-react';
+import { useToast } from '@/contexts/ToastContext';
 import XLSX from 'xlsx-js-style';
 
 interface MonthSlot {
@@ -22,6 +23,23 @@ export default function AnnualReviewPage() {
   const [loading, setLoading] = useState(true);
   const [deptFilter, setDeptFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const toast = useToast();
+
+  const handleDeleteMember = async (member: any) => {
+    const confirmed = await toast.confirm(
+      `Bạn có chắc chắn muốn xóa đoàn viên "${member.full_name}"?\nToàn bộ lịch sử điểm đánh giá của đoàn viên này cũng sẽ bị xóa vĩnh viễn.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.from('members').delete().eq('id', member.id);
+      if (error) throw error;
+      toast.success(`Đã xóa đoàn viên "${member.full_name}"`);
+      fetchData();
+    } catch (err: any) {
+      toast.error('Lỗi khi xóa đoàn viên: ' + (err.message || 'Không xác định'));
+    }
+  };
 
   const normalizeName = (name: string | null | undefined) =>
     String(name || '')
@@ -572,8 +590,11 @@ export default function AnnualReviewPage() {
                 <th rowSpan={2} className="table-th text-center w-24 border-r border-slate-700/50 text-xs">
                   Trung bình
                 </th>
-                <th rowSpan={2} className="table-th text-center w-28 text-xs">
+                <th rowSpan={2} className="table-th text-center w-28 border-r border-slate-700/50 text-xs">
                   Đánh giá
+                </th>
+                <th rowSpan={2} className="table-th text-center w-14 text-xs">
+                  Xóa
                 </th>
               </tr>
               <tr>
@@ -590,13 +611,13 @@ export default function AnnualReviewPage() {
             <tbody className="divide-y divide-slate-800">
               {loading ? (
                 <tr>
-                  <td colSpan={17} className="text-center py-10 text-slate-400">
+                  <td colSpan={18} className="text-center py-10 text-slate-400">
                     Đang tổng hợp dữ liệu...
                   </td>
                 </tr>
               ) : filteredDepartments.length === 0 ? (
                 <tr>
-                  <td colSpan={17} className="text-center py-10 text-slate-400">
+                  <td colSpan={18} className="text-center py-10 text-slate-400">
                     Chưa có dữ liệu đoàn viên phù hợp.
                   </td>
                 </tr>
@@ -606,7 +627,7 @@ export default function AnnualReviewPage() {
                   return filteredDepartments.map((dept) => (
                     <Fragment key={dept.id}>
                       <tr className="bg-slate-800/70">
-                        <td colSpan={17} className="px-4 py-2 font-bold text-blue-300 text-xs uppercase tracking-wide">
+                        <td colSpan={18} className="px-4 py-2 font-bold text-blue-300 text-xs uppercase tracking-wide">
                           {dept.name}
                         </td>
                       </tr>
@@ -637,12 +658,21 @@ export default function AnnualReviewPage() {
                             <td className="table-td text-center font-bold text-sm text-blue-300 border-r border-slate-800/60">
                               {avg != null ? avg : <span className="text-slate-600">-</span>}
                             </td>
-                            <td className="table-td text-center">
+                            <td className="table-td text-center border-r border-slate-800/60">
                               {avg != null ? (
                                 <span className={`badge ${rank.class}`}>{rank.text}</span>
                               ) : (
                                 <span className="text-slate-600 text-xs">-</span>
                               )}
+                            </td>
+                            <td className="table-td text-center">
+                              <button
+                                className="p-1.5 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                title="Xóa đoàn viên"
+                                onClick={() => handleDeleteMember(member)}
+                              >
+                                <Trash2 size={15} />
+                              </button>
                             </td>
                           </tr>
                         );

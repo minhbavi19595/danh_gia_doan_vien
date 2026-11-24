@@ -3,7 +3,8 @@
 import React, { useState, useEffect, Fragment } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, FileDown } from 'lucide-react';
+import { ArrowLeft, FileDown, Trash2 } from 'lucide-react';
+import { useToast } from '@/contexts/ToastContext';
 import XLSX from 'xlsx-js-style';
 
 export default function AllDepartmentsDetail() {
@@ -15,6 +16,23 @@ export default function AllDepartmentsDetail() {
   const [loading, setLoading] = useState(true);
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
+  const toast = useToast();
+
+  const handleDeleteMember = async (member: any) => {
+    const confirmed = await toast.confirm(
+      `Bạn có chắc chắn muốn xóa đoàn viên "${member.full_name}"?\nToàn bộ lịch sử điểm đánh giá của đoàn viên này cũng sẽ bị xóa vĩnh viễn.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.from('members').delete().eq('id', member.id);
+      if (error) throw error;
+      toast.success(`Đã xóa đoàn viên "${member.full_name}"`);
+      fetchData();
+    } catch (err: any) {
+      toast.error('Lỗi khi xóa đoàn viên: ' + (err.message || 'Không xác định'));
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -510,13 +528,14 @@ export default function AllDepartmentsDetail() {
                 <th className="table-th text-center border-r border-slate-700/50 text-[10px] leading-tight whitespace-normal w-16 p-1 bg-slate-800/30" title="Ý thức xây dựng tổ chức đoàn, tham gia phong trào đoàn">Ý thức<br/>phong trào</th>
                 <th className="table-th text-center border-r border-slate-700/50 bg-blue-500/10 text-blue-200 text-xs p-1">Tổng<br/>điểm</th>
                 <th className="table-th text-center border-r border-slate-700/50 bg-blue-500/10 text-blue-200 text-xs p-1">Xếp<br/>loại</th>
-                <th className="table-th w-24 text-xs p-1">Ghi chú</th>
+                <th className="table-th w-24 border-r border-slate-700/50 text-xs p-1">Ghi chú</th>
+                <th className="table-th text-center w-12 text-xs p-1">Xóa</th>
               </tr>
             </thead>
             <tbody>
               {departments.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="text-center p-8 text-slate-400">
+                  <td colSpan={12} className="text-center p-8 text-slate-400">
                     Chưa có phòng ban nào
                   </td>
                 </tr>
@@ -529,7 +548,7 @@ export default function AllDepartmentsDetail() {
                     <Fragment key={dept.id}>
                       {/* Department Group Header */}
                       <tr className="bg-slate-800/80 border-y border-slate-700/50">
-                        <td colSpan={11} className="p-2 font-bold text-blue-400 text-sm">
+                        <td colSpan={12} className="p-2 font-bold text-blue-400 text-sm">
                           {dept.name.toUpperCase()}
                         </td>
                       </tr>
@@ -555,7 +574,16 @@ export default function AllDepartmentsDetail() {
                             <td className="table-td text-center border-r border-slate-700/50 bg-blue-500/5 p-1">
                               <span className={`badge ${rank.class} text-[10px] px-1 py-0.5`}>{rank.text}</span>
                             </td>
-                            <td className="table-td text-slate-400 text-xs p-1 truncate max-w-[100px]">{!hasEval ? (ev.note || 'Đoàn viên mới') : (ev.note || '')}</td>
+                            <td className="table-td text-slate-400 border-r border-slate-700/50 text-xs p-1 truncate max-w-[100px]">{!hasEval ? (ev.note || 'Đoàn viên mới') : (ev.note || '')}</td>
+                            <td className="table-td text-center p-1">
+                              <button
+                                className="p-1.5 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                title="Xóa đoàn viên"
+                                onClick={() => handleDeleteMember(member)}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}

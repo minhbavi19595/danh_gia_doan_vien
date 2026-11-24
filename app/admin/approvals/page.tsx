@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Fragment } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Check, X, CheckCircle2, XCircle, FileDown, Save, Edit } from 'lucide-react';
+import { Check, X, CheckCircle2, XCircle, FileDown, Save, Edit, Trash2 } from 'lucide-react';
 import { useToast } from '@/contexts/ToastContext';
 import XLSX from 'xlsx-js-style';
 
@@ -143,6 +143,22 @@ export default function ApprovalsPage() {
       fetchData();
     } catch (err: any) {
       toast.error('Lỗi: ' + err.message);
+    }
+  };
+
+  const handleDeleteMember = async (member: any) => {
+    const confirmed = await toast.confirm(
+      `Bạn có chắc chắn muốn xóa đoàn viên "${member.full_name}"?\nToàn bộ lịch sử điểm đánh giá của đoàn viên này cũng sẽ bị xóa vĩnh viễn.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.from('members').delete().eq('id', member.id);
+      if (error) throw error;
+      toast.success(`Đã xóa đoàn viên "${member.full_name}"`);
+      fetchData();
+    } catch (err: any) {
+      toast.error('Lỗi khi xóa đoàn viên: ' + (err.message || 'Không xác định'));
     }
   };
 
@@ -701,7 +717,16 @@ export default function ApprovalsPage() {
                           {/* Thao tác */}
                           <td className="table-td text-center p-2">
                             {!hasEval ? (
-                              <span className="text-xs text-slate-500 italic">Chưa đánh giá</span>
+                              <div className="flex items-center justify-center gap-1.5">
+                                <span className="text-xs text-slate-500 italic">Chưa chấm</span>
+                                <button
+                                  className="p-1.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all border border-red-500/20"
+                                  title="Xóa đoàn viên"
+                                  onClick={() => handleDeleteMember(member)}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
                             ) : isEditing ? (
                               <div className="flex flex-col gap-1.5">
                                 <button 
@@ -719,7 +744,7 @@ export default function ApprovalsPage() {
                                 </button>
                               </div>
                             ) : (
-                              <div className="flex justify-center gap-1.5">
+                              <div className="flex justify-center items-center gap-1.5">
                                 {isPending ? (
                                   <>
                                     <button 
@@ -746,6 +771,13 @@ export default function ApprovalsPage() {
                                     <Edit size={12} /> Sửa
                                   </button>
                                 )}
+                                <button
+                                  className="p-1.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all border border-red-500/20"
+                                  title="Xóa đoàn viên"
+                                  onClick={() => handleDeleteMember(member)}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
                               </div>
                             )}
                           </td>

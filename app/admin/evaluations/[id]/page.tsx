@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Filter, FileDown } from 'lucide-react';
+import { ArrowLeft, Filter, FileDown, Trash2 } from 'lucide-react';
+import { useToast } from '@/contexts/ToastContext';
 import * as XLSX from 'xlsx';
 
 export default function DepartmentDetail() {
@@ -18,6 +19,23 @@ export default function DepartmentDetail() {
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
   const [rankFilter, setRankFilter] = useState<string>('all');
+  const toast = useToast();
+
+  const handleDeleteMember = async (member: any) => {
+    const confirmed = await toast.confirm(
+      `Bạn có chắc chắn muốn xóa đoàn viên "${member.full_name}"?\nToàn bộ lịch sử điểm đánh giá của đoàn viên này cũng sẽ bị xóa vĩnh viễn.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.from('members').delete().eq('id', member.id);
+      if (error) throw error;
+      toast.success(`Đã xóa đoàn viên "${member.full_name}"`);
+      fetchData();
+    } catch (err: any) {
+      toast.error('Lỗi khi xóa đoàn viên: ' + (err.message || 'Không xác định'));
+    }
+  };
 
   useEffect(() => {
     fetchDepartment();
@@ -318,14 +336,15 @@ export default function DepartmentDetail() {
                 <th className="table-th text-center border-r border-slate-700/50 text-[10px] leading-tight whitespace-normal w-16 p-1 bg-slate-800/30" title="Ý thức xây dựng tổ chức đoàn, tham gia phong trào đoàn">Ý thức<br/>phong trào</th>
                 <th className="table-th text-center border-r border-slate-700/50 bg-blue-500/10 text-blue-200 text-xs p-1">Tổng<br/>điểm</th>
                 <th className="table-th text-center border-r border-slate-700/50 bg-blue-500/10 text-blue-200 text-xs p-1">Xếp<br/>loại</th>
-                <th className="table-th w-24 text-xs p-1">Ghi chú</th>
+                <th className="table-th w-24 border-r border-slate-700/50 text-xs p-1">Ghi chú</th>
+                <th className="table-th text-center w-12 text-xs p-1">Xóa</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={11} className="text-center p-12 text-slate-400">Đang tải dữ liệu...</td></tr>
+                <tr><td colSpan={12} className="text-center p-12 text-slate-400">Đang tải dữ liệu...</td></tr>
               ) : filteredMembers.length === 0 ? (
-                <tr><td colSpan={11} className="text-center p-12 text-slate-400">
+                <tr><td colSpan={12} className="text-center p-12 text-slate-400">
                   {rankFilter !== 'all' ? 'Không có đoàn viên nào phù hợp bộ lọc' : 'Chưa có đoàn viên nào'}
                 </td></tr>
               ) : (
@@ -374,7 +393,16 @@ export default function DepartmentDetail() {
                       <td className="table-td text-center border-r border-slate-700/50 bg-blue-500/5 p-1">
                         <span className={`badge ${rank.class} text-[10px] px-1 py-0.5`}>{rank.text}</span>
                       </td>
-                      <td className="table-td text-slate-400 text-xs p-1 truncate max-w-[100px]">{!hasEval ? (note || 'Đoàn viên mới') : (note || '')}</td>
+                      <td className="table-td text-slate-400 border-r border-slate-700/50 text-xs p-1 truncate max-w-[100px]">{!hasEval ? (note || 'Đoàn viên mới') : (note || '')}</td>
+                      <td className="table-td text-center p-1">
+                        <button
+                          className="p-1.5 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          title="Xóa đoàn viên"
+                          onClick={() => handleDeleteMember(member)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })
