@@ -72,7 +72,7 @@ export default function DepartmentDetail() {
   };
 
   const getRank = (score: number | null | undefined) => {
-    if (score == null) return { text: '-', class: '', type: '' };
+    if (score == null || score <= 0) return { text: '-', class: '', type: '' };
     if (score >= 90) return { text: 'HTXSNV', class: 'badge-a', type: 'A' };
     if (score >= 70) return { text: 'HTTNV', class: 'badge-b', type: 'B' };
     if (score >= 50) return { text: 'HTNV', class: 'badge-c', type: 'C' };
@@ -82,8 +82,8 @@ export default function DepartmentDetail() {
   const filteredMembers = members.filter(member => {
     if (rankFilter === 'all') return true;
     const ev = evaluations[member.id];
-    if (!ev || ev.total_score === undefined) return rankFilter === 'none';
-    const total = ev.status === 'rejected' ? ev.bch_total_score : ev.total_score;
+    const total = ev ? (ev.status === 'rejected' ? ev.bch_total_score : ev.total_score) : null;
+    if (!ev || total == null || total <= 0) return rankFilter === 'none';
     const rank = getRank(total);
     return rank.type === rankFilter;
   });
@@ -92,9 +92,9 @@ export default function DepartmentDetail() {
   const stats = { A: 0, B: 0, C: 0, D: 0, total: 0 };
   members.forEach(m => {
     const ev = evaluations[m.id];
-    if (ev && ev.total_score !== undefined) {
+    const total = ev ? (ev.status === 'rejected' ? ev.bch_total_score : ev.total_score) : null;
+    if (ev && total != null && total > 0) {
       stats.total++;
-      const total = ev.status === 'rejected' ? ev.bch_total_score : ev.total_score;
       const r = getRank(total);
       if (r.type === 'A') stats.A++;
       else if (r.type === 'B') stats.B++;
@@ -129,7 +129,8 @@ export default function DepartmentDetail() {
       const total = isRejected ? ev.bch_total_score : ev.total_score;
       const note = isRejected ? ev.bch_note : ev.note;
       
-      const rank = hasEval ? getRank(total) : { text: '', type: '' };
+      const rank = hasEval && (total ?? 0) > 0 ? getRank(total) : { text: '', type: '' };
+      const displayNote = !hasEval ? (note || 'Đoàn viên mới') : (note || '');
       rows.push([
         i + 1, member.full_name, member.title,
         hasEval ? (s1 || 0) : '',
@@ -139,7 +140,7 @@ export default function DepartmentDetail() {
         hasEval ? (s5 || 0) : '',
         hasEval ? (total || 0) : '',
         rank.text,
-        ev.note || ''
+        displayNote
       ]);
     });
 
@@ -373,7 +374,7 @@ export default function DepartmentDetail() {
                       <td className="table-td text-center border-r border-slate-700/50 bg-blue-500/5 p-1">
                         <span className={`badge ${rank.class} text-[10px] px-1 py-0.5`}>{rank.text}</span>
                       </td>
-                      <td className="table-td text-slate-400 text-xs p-1 truncate max-w-[100px]">{note || ''}</td>
+                      <td className="table-td text-slate-400 text-xs p-1 truncate max-w-[100px]">{!hasEval ? (note || 'Đoàn viên mới') : (note || '')}</td>
                     </tr>
                   );
                 })

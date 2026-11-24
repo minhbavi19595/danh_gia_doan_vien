@@ -147,7 +147,7 @@ export default function ApprovalsPage() {
   };
 
   const getRank = (score: number | null | undefined) => {
-    if (score == null) return { text: '-', class: '', type: '' };
+    if (score == null || score <= 0) return { text: '-', class: '', type: '' };
     if (score >= 90) return { text: 'HTXSNV', class: 'badge-a', type: 'A' };
     if (score >= 70) return { text: 'HTTNV', class: 'badge-b', type: 'B' };
     if (score >= 50) return { text: 'HTNV', class: 'badge-c', type: 'C' };
@@ -281,21 +281,22 @@ export default function ApprovalsPage() {
         const isApproved = ev.status === 'approved';
 
         const cdTotal = hasEval ? (ev.total_score ?? '') : '';
-        const cdRank = hasEval ? getRank(ev.total_score).text : '';
+        const cdRank = hasEval && (ev.total_score ?? 0) > 0 ? getRank(ev.total_score).text : '';
 
         const bchScore = isRejected ? ev.bch_total_score : isApproved ? ev.total_score : null;
         const bchTotal = hasEval && bchScore != null ? bchScore : '';
-        const bchRank = hasEval && bchScore != null ? getRank(bchScore).text : '';
+        const bchRank = hasEval && bchScore != null && bchScore > 0 ? getRank(bchScore).text : '';
 
         const finalScore = isRejected ? ev.bch_total_score : ev.total_score;
-        if (hasEval && finalScore != null) {
+        if (hasEval && finalScore != null && finalScore > 0) {
           const finalType = getRank(finalScore).type as keyof typeof rankCounts;
           if (finalType && finalType in rankCounts) {
             rankCounts[finalType]++;
           }
         }
 
-        const note = isRejected ? (ev.bch_note || ev.note || '') : (ev.note || '');
+        const rawNote = isRejected ? (ev.bch_note || ev.note || '') : (ev.note || '');
+        const note = !hasEval ? (rawNote || 'Đoàn viên mới') : rawNote;
         const rowIdx = rows.length;
         dataRowIndices.push(rowIdx);
 
@@ -686,8 +687,8 @@ export default function ApprovalsPage() {
                                 placeholder="Ghi chú BCH..."
                               />
                             ) : (
-                              <div className={`text-xs whitespace-pre-wrap line-clamp-3 ${textClass}`} title={note || ''}>
-                                {note || '-'}
+                              <div className={`text-xs whitespace-pre-wrap line-clamp-3 ${textClass}`} title={(!hasEval ? (note || 'Đoàn viên mới') : note) || ''}>
+                                {!hasEval ? (note || 'Đoàn viên mới') : (note || '-')}
                               </div>
                             )}
                           </td>

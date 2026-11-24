@@ -40,6 +40,7 @@ export default function AdminDashboard() {
 
       (evals || []).forEach(e => {
         const score = e.status === 'rejected' ? (e.bch_total_score || 0) : (e.total_score || 0);
+        if (score <= 0) return;
         let type = '';
         if (score >= 90) { A++; type = 'A'; }
         else if (score >= 70) { B++; type = 'B'; }

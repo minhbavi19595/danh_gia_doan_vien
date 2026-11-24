@@ -142,7 +142,7 @@ export default function AnnualReviewPage() {
   };
 
   const getRank = (score: number | null | undefined) => {
-    if (score == null) return { text: '-', class: '', type: '' };
+    if (score == null || score <= 0) return { text: '-', class: '', type: '' };
     if (score >= 90) return { text: 'HTXSNV', class: 'badge-a', type: 'A' };
     if (score >= 70) return { text: 'HTTNV', class: 'badge-b', type: 'B' };
     if (score >= 50) return { text: 'HTNV', class: 'badge-c', type: 'C' };
@@ -160,7 +160,7 @@ export default function AnnualReviewPage() {
       if (!ev) return { score: null as number | null, isRejected: false };
       const isRejected = ev.status === 'rejected';
       const val = isRejected ? ev.bch_total_score : ev.total_score;
-      if (typeof val === 'number') {
+      if (typeof val === 'number' && val > 0) {
         sum += val;
         count++;
         return { score: val, isRejected };

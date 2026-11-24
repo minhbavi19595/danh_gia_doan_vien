@@ -4,7 +4,7 @@ import React, { useState, useEffect, Fragment } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, FileDown } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 
 export default function AllDepartmentsDetail() {
   const router = useRouter();
@@ -60,7 +60,7 @@ export default function AllDepartmentsDetail() {
   };
 
   const getRank = (score: number | null | undefined) => {
-    if (score == null) return { text: '-', class: '', type: '' };
+    if (score == null || score <= 0) return { text: '-', class: '', type: '' };
     if (score >= 90) return { text: 'HTXSNV', class: 'badge-a', type: 'A' };
     if (score >= 70) return { text: 'HTTNV', class: 'badge-b', type: 'B' };
     if (score >= 50) return { text: 'HTNV', class: 'badge-c', type: 'C' };
@@ -70,72 +70,343 @@ export default function AllDepartmentsDetail() {
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
     const rows: any[][] = [];
-    
-    rows.push(['BẢNG ĐÁNH GIÁ CHI TIẾT TOÀN TRUNG TÂM']);
-    rows.push([`Tháng ${currentMonth} năm ${currentYear}`]);
-    rows.push([]);
+    const merges: any[] = [];
+    const rowHeights: any[] = [];
+
+    const emptyRow = () => Array(13).fill('');
+    const thinBorder = {
+      top: { style: 'thin', color: { rgb: '000000' } },
+      bottom: { style: 'thin', color: { rgb: '000000' } },
+      left: { style: 'thin', color: { rgb: '000000' } },
+      right: { style: 'thin', color: { rgb: '000000' } },
+    };
+    const baseFont = { name: 'Times New Roman', sz: 12 };
+
+    // Row 0-1: blank spacing
+    rows.push(emptyRow());
+    rowHeights.push({ hpt: 10 });
+    rows.push(emptyRow());
+    rowHeights.push({ hpt: 10 });
+
+    // Row 2: Tổ chức cấp trên & Quốc hiệu Đoàn
+    const r2 = emptyRow();
+    r2[0] = 'ĐOÀN XÃ QUẢNG OAI';
+    r2[7] = 'ĐOÀN TNCS HỒ CHÍ MINH';
+    rows.push(r2);
+    rowHeights.push({ hpt: 22 });
+    merges.push({ s: { r: 2, c: 0 }, e: { r: 2, c: 6 } });
+    merges.push({ s: { r: 2, c: 7 }, e: { r: 2, c: 12 } });
+
+    // Row 3: Đơn vị
+    const r3 = emptyRow();
+    r3[0] = 'ĐOÀN THANH NIÊN TRUNG TÂM CHĂM SÓC VÀ PHỤC HỒI CHỨC NĂNG NGƯỜI TÂM THẦN SỐ 1\n***';
+    rows.push(r3);
+    rowHeights.push({ hpt: 52 });
+    merges.push({ s: { r: 3, c: 0 }, e: { r: 3, c: 6 } });
+
+    // Row 4-6: Tiêu đề báo cáo
+    const r4 = emptyRow();
+    r4[0] = 'DANH SÁCH TỔNG HỢP';
+    rows.push(r4);
+    rowHeights.push({ hpt: 22 });
+    merges.push({ s: { r: 4, c: 0 }, e: { r: 4, c: 12 } });
+
+    const r5 = emptyRow();
+    r5[0] = 'KẾT QUẢ ĐÁNH GIÁ, XẾP LOẠI ĐOÀN VIÊN';
+    rows.push(r5);
+    rowHeights.push({ hpt: 22 });
+    merges.push({ s: { r: 5, c: 0 }, e: { r: 5, c: 12 } });
+
+    const r6 = emptyRow();
+    r6[0] = `Tháng ${currentMonth} năm ${currentYear}\n------`;
+    rows.push(r6);
+    rowHeights.push({ hpt: 34 });
+    merges.push({ s: { r: 6, c: 0 }, e: { r: 6, c: 12 } });
+
+    // Row 7: blank
+    rows.push(emptyRow());
+    rowHeights.push({ hpt: 10 });
+
+    // Row 8-9: Header 2 dòng
     rows.push([
-      'STT', 'Họ và tên', 'Chức danh',
-      'Lý tưởng cách mạng, nhận thức chính trị', 'Đạo đức, lối sống, tác phong đoàn viên', 'Công tác chuyên môn nghiệp vụ',
-      'Rèn luyện sức khoẻ', 'Ý thức xây dựng tổ chức đoàn, tham gia phong trào đoàn', 'Tổng điểm', 'Xếp loại', 'Ghi chú'
+      'STT',
+      'Họ và tên',
+      'Chức danh',
+      'Lý tưởng cách mạng, nhận thức chính trị',
+      'Đạo đức, lối sống, tác phong đoàn viên',
+      'Công tác chuyên môn nghiệp vụ',
+      'Rèn luyện sức khoẻ',
+      'Ý thức xây dựng tổ chức đoàn, tham gia phong trào đoàn',
+      'Chi đoàn\nđánh giá',
+      '',
+      'BCH Đoàn Trung tâm đánh giá',
+      '',
+      'Ghi chú',
     ]);
+    rowHeights.push({ hpt: 36 });
 
+    rows.push([
+      '', '', '', '', '', '', '', '',
+      'Tổng điểm',
+      'Mức xếp loại',
+      'Tổng điểm',
+      'Mức xếp loại',
+      '',
+    ]);
+    rowHeights.push({ hpt: 62 });
+
+    for (let c = 0; c <= 7; c++) {
+      merges.push({ s: { r: 8, c }, e: { r: 9, c } });
+    }
+    merges.push({ s: { r: 8, c: 8 }, e: { r: 8, c: 9 } });
+    merges.push({ s: { r: 8, c: 10 }, e: { r: 8, c: 11 } });
+    merges.push({ s: { r: 8, c: 12 }, e: { r: 9, c: 12 } });
+
+    const deptRowIndices: number[] = [];
+    const dataRowIndices: number[] = [];
     let globalIndex = 1;
+    let totalMembers = 0;
+    const rankCounts = { A: 0, B: 0, C: 0, D: 0 };
 
-    departments.forEach(dept => {
-      const deptMembers = members.filter(m => m.department_id === dept.id);
+    departments.forEach((dept) => {
+      const deptMembers = members.filter((m) => m.department_id === dept.id);
       if (deptMembers.length === 0) return;
 
-      // Group header row
-      rows.push([dept.name.toUpperCase()]);
+      const deptRowIdx = rows.length;
+      const deptRow = emptyRow();
+      deptRow[0] = dept.name.toUpperCase();
+      rows.push(deptRow);
+      rowHeights.push({ hpt: 26 });
+      deptRowIndices.push(deptRowIdx);
+      merges.push({ s: { r: deptRowIdx, c: 0 }, e: { r: deptRowIdx, c: 12 } });
 
       deptMembers.forEach((member) => {
+        totalMembers++;
         const ev = evaluations[member.id] || {};
-        const hasEval = ev.id || ev.total_score !== undefined;
-        const rank = hasEval ? getRank(ev.total_score) : { text: '', type: '' };
+        const hasEval = Boolean(ev.id || ev.total_score !== undefined);
+        const isRejected = ev.status === 'rejected';
+        const isApproved = ev.status === 'approved';
+
+        const cdTotal = hasEval ? (ev.total_score ?? '') : '';
+        const cdRank = hasEval && (ev.total_score ?? 0) > 0 ? getRank(ev.total_score).text : '';
+
+        const bchScore = isRejected ? ev.bch_total_score : isApproved ? ev.total_score : null;
+        const bchTotal = hasEval && bchScore != null ? bchScore : '';
+        const bchRank = hasEval && bchScore != null && bchScore > 0 ? getRank(bchScore).text : '';
+
+        const finalScore = isRejected ? ev.bch_total_score : ev.total_score;
+        if (hasEval && finalScore != null && finalScore > 0) {
+          const finalType = getRank(finalScore).type as keyof typeof rankCounts;
+          if (finalType && finalType in rankCounts) {
+            rankCounts[finalType]++;
+          }
+        }
+
+        const rawNote = isRejected ? (ev.bch_note || ev.note || '') : (ev.note || '');
+        const note = !hasEval ? (rawNote || 'Đoàn viên mới') : rawNote;
+        const rowIdx = rows.length;
+        dataRowIndices.push(rowIdx);
+
+        const noteLines = Math.max(1, Math.ceil(String(note).length / 26));
+        const nameLines = Math.max(1, Math.ceil(String(member.full_name || '').length / 22));
+        const maxLines = Math.max(noteLines, nameLines);
+        rowHeights.push({ hpt: Math.max(24, maxLines * 16 + 8) });
+
         rows.push([
-          globalIndex++, member.full_name, member.title,
-          hasEval ? (ev.score_1 || 0) : '',
-          hasEval ? (ev.score_2 || 0) : '',
-          hasEval ? (ev.score_3 || 0) : '',
-          hasEval ? (ev.score_4 || 0) : '',
-          hasEval ? (ev.score_5 || 0) : '',
-          hasEval ? (ev.total_score || 0) : '',
-          rank.text,
-          ev.note || ''
+          globalIndex++,
+          member.full_name,
+          member.title,
+          hasEval ? (ev.score_1 ?? '') : '',
+          hasEval ? (ev.score_2 ?? '') : '',
+          hasEval ? (ev.score_3 ?? '') : '',
+          hasEval ? (ev.score_4 ?? '') : '',
+          hasEval ? (ev.score_5 ?? '') : '',
+          cdTotal,
+          cdRank,
+          bchTotal,
+          bchRank,
+          note,
         ]);
       });
     });
 
+    // Dòng tổng kết
+    const summaryIdx = rows.length;
+    const summaryRow = emptyRow();
+    summaryRow[0] = `Tổng số: ${totalMembers} đoàn viên. Trong đó: Xếp loại A: ${rankCounts.A}; Xếp loại B: ${rankCounts.B}; Xếp loại C: ${rankCounts.C}; Xếp loại D: ${rankCounts.D}`;
+    rows.push(summaryRow);
+    rowHeights.push({ hpt: 24 });
+    merges.push({ s: { r: summaryIdx, c: 0 }, e: { r: summaryIdx, c: 12 } });
+
+    // Chân trang: Nơi nhận & Chữ ký
+    const today = new Date();
+    const dateIdx = rows.length;
+    const dateRow = emptyRow();
+    dateRow[9] = `Hà Nội, ngày ${today.getDate()} tháng ${today.getMonth() + 1} năm ${today.getFullYear()}`;
+    rows.push(dateRow);
+    rowHeights.push({ hpt: 22 });
+    merges.push({ s: { r: dateIdx, c: 9 }, e: { r: dateIdx, c: 12 } });
+
+    rows.push(emptyRow());
+    rowHeights.push({ hpt: 12 });
+
+    const signHeaderIdx = rows.length;
+    const signHeaderRow = emptyRow();
+    signHeaderRow[0] = 'Nơi nhận';
+    signHeaderRow[9] = 'TM. BCH ĐOÀN';
+    rows.push(signHeaderRow);
+    rowHeights.push({ hpt: 22 });
+    merges.push({ s: { r: signHeaderIdx, c: 9 }, e: { r: signHeaderIdx, c: 12 } });
+
+    const signRoleIdx = rows.length;
+    const signRoleRow = emptyRow();
+    signRoleRow[0] = 'Đảng uỷ (để báo cáo);';
+    signRoleRow[9] = 'BÍ THƯ';
+    rows.push(signRoleRow);
+    rowHeights.push({ hpt: 22 });
+    merges.push({ s: { r: signRoleIdx, c: 0 }, e: { r: signRoleIdx, c: 8 } });
+    merges.push({ s: { r: signRoleIdx, c: 9 }, e: { r: signRoleIdx, c: 12 } });
+
+    const ccIdx = rows.length;
+    const ccRow = emptyRow();
+    ccRow[0] = 'Các chi đoàn;';
+    rows.push(ccRow);
+    rowHeights.push({ hpt: 20 });
+    merges.push({ s: { r: ccIdx, c: 0 }, e: { r: ccIdx, c: 1 } });
+
+    const saveIdx = rows.length;
+    const saveRow = emptyRow();
+    saveRow[0] = 'Lưu: VP đoàn./.';
+    rows.push(saveRow);
+    rowHeights.push({ hpt: 20 });
+    merges.push({ s: { r: saveIdx, c: 0 }, e: { r: saveIdx, c: 8 } });
+
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [
-      { wch: 5 }, { wch: 28 }, { wch: 15 },
-      { wch: 38 }, { wch: 38 }, { wch: 30 }, { wch: 20 }, { wch: 45 },
-      { wch: 10 }, { wch: 12 }, { wch: 35 }
-    ];
-
-    // Merging titles and group headers
-    const merges = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 10 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 10 } },
-    ];
-
-    // Find group rows to merge them across all columns
-    let currentRow = 4; // Starts after header (rows 0, 1, 2, 3)
-    departments.forEach(dept => {
-      const deptMembers = members.filter(m => m.department_id === dept.id);
-      if (deptMembers.length === 0) return;
-      
-      merges.push({ s: { r: currentRow, c: 0 }, e: { r: currentRow, c: 10 } });
-      currentRow += 1 + deptMembers.length; // 1 for header + members
-    });
-    
     ws['!merges'] = merges;
+    ws['!rows'] = rowHeights;
+    ws['!cols'] = [
+      { wch: 5 },
+      { wch: 24 },
+      { wch: 13 },
+      { wch: 11 },
+      { wch: 11 },
+      { wch: 11 },
+      { wch: 9 },
+      { wch: 13 },
+      { wch: 11 },
+      { wch: 13 },
+      { wch: 11 },
+      { wch: 13 },
+      { wch: 30 },
+    ];
 
-    // Bold styles could be applied if using a pro version of xlsx, or just rely on simple export
+    const setStyle = (r: number, c: number, style: any) => {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+      ws[addr].s = style;
+    };
 
-    XLSX.utils.book_append_sheet(wb, ws, 'Toàn Trung tâm');
-    XLSX.writeFile(wb, `Chi_tiet_ToanTrungTam_T${currentMonth}.${currentYear}.xlsx`);
+    // Style tiêu đề đầu trang
+    setStyle(2, 0, {
+      font: { ...baseFont, sz: 13 },
+      alignment: { horizontal: 'center', vertical: 'center' },
+    });
+    setStyle(2, 7, {
+      font: { ...baseFont, sz: 13, bold: true, underline: true },
+      alignment: { horizontal: 'center', vertical: 'center' },
+    });
+    setStyle(3, 0, {
+      font: { ...baseFont, sz: 13, bold: true },
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    });
+    setStyle(4, 0, {
+      font: { ...baseFont, sz: 14, bold: true },
+      alignment: { horizontal: 'center', vertical: 'center' },
+    });
+    setStyle(5, 0, {
+      font: { ...baseFont, sz: 14, bold: true },
+      alignment: { horizontal: 'center', vertical: 'center' },
+    });
+    setStyle(6, 0, {
+      font: { ...baseFont, sz: 13, bold: true },
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    });
+
+    // Style header bảng (row 8 & 9)
+    for (let r = 8; r <= 9; r++) {
+      for (let c = 0; c <= 12; c++) {
+        setStyle(r, c, {
+          font: { ...baseFont, sz: 11, bold: true },
+          alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+          border: thinBorder,
+        });
+      }
+    }
+
+    // Style dòng tên Chi đoàn
+    deptRowIndices.forEach((r) => {
+      for (let c = 0; c <= 12; c++) {
+        setStyle(r, c, {
+          font: { ...baseFont, sz: 11, bold: true },
+          alignment: { horizontal: 'left', vertical: 'center', wrapText: true },
+          border: thinBorder,
+        });
+      }
+    });
+
+    // Style dòng dữ liệu đoàn viên
+    dataRowIndices.forEach((r) => {
+      for (let c = 0; c <= 12; c++) {
+        const isBoldCol = c === 8 || c === 10;
+        const isLeftCol = c === 1 || c === 12;
+        setStyle(r, c, {
+          font: { ...baseFont, sz: 11, bold: isBoldCol },
+          alignment: {
+            horizontal: isLeftCol ? 'left' : 'center',
+            vertical: 'center',
+            wrapText: true,
+          },
+          border: thinBorder,
+        });
+      }
+    });
+
+    // Style dòng tổng hợp & chân trang
+    setStyle(summaryIdx, 0, {
+      font: { ...baseFont, sz: 11, bold: true, italic: true },
+      alignment: { horizontal: 'left', vertical: 'center' },
+    });
+    setStyle(dateIdx, 9, {
+      font: { ...baseFont, sz: 11, italic: true },
+      alignment: { horizontal: 'center', vertical: 'center' },
+    });
+    setStyle(signHeaderIdx, 0, {
+      font: { ...baseFont, sz: 11, bold: true, italic: true },
+      alignment: { horizontal: 'left', vertical: 'center' },
+    });
+    setStyle(signHeaderIdx, 9, {
+      font: { ...baseFont, sz: 11, bold: true },
+      alignment: { horizontal: 'center', vertical: 'center' },
+    });
+    setStyle(signRoleIdx, 0, {
+      font: { ...baseFont, sz: 11 },
+      alignment: { horizontal: 'left', vertical: 'center' },
+    });
+    setStyle(signRoleIdx, 9, {
+      font: { ...baseFont, sz: 11, bold: true },
+      alignment: { horizontal: 'center', vertical: 'center' },
+    });
+    setStyle(ccIdx, 0, {
+      font: { ...baseFont, sz: 11 },
+      alignment: { horizontal: 'left', vertical: 'center' },
+    });
+    setStyle(saveIdx, 0, {
+      font: { ...baseFont, sz: 11 },
+      alignment: { horizontal: 'left', vertical: 'center' },
+    });
+
+    XLSX.utils.book_append_sheet(wb, ws, 'mẫu phòng');
+    XLSX.writeFile(wb, `Danh_gia_doan_vien_thang_${currentMonth}_${currentYear}.xlsx`);
   };
 
   if (loading) {
@@ -284,7 +555,7 @@ export default function AllDepartmentsDetail() {
                             <td className="table-td text-center border-r border-slate-700/50 bg-blue-500/5 p-1">
                               <span className={`badge ${rank.class} text-[10px] px-1 py-0.5`}>{rank.text}</span>
                             </td>
-                            <td className="table-td text-slate-400 text-xs p-1 truncate max-w-[100px]">{ev.note || ''}</td>
+                            <td className="table-td text-slate-400 text-xs p-1 truncate max-w-[100px]">{!hasEval ? (ev.note || 'Đoàn viên mới') : (ev.note || '')}</td>
                           </tr>
                         );
                       })}

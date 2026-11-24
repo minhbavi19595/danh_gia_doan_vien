@@ -250,7 +250,7 @@ export default function DepartmentDashboard() {
   };
 
   const getRank = (score: number | null | undefined) => {
-    if (score == null) return { text: '-', class: '' };
+    if (score == null || score <= 0) return { text: '-', class: '' };
     if (score >= 90) return { text: 'HTXSNV', class: 'badge-a' };
     if (score >= 70) return { text: 'HTTNV', class: 'badge-b' };
     if (score >= 50) return { text: 'HTNV', class: 'badge-c' };
@@ -780,21 +780,22 @@ export default function DepartmentDashboard() {
         const isApproved = ev.status === 'approved';
 
         const cdTotal = hasEval ? (ev.total_score ?? '') : '';
-        const cdRank = hasEval ? getRank(ev.total_score).text : '';
+        const cdRank = hasEval && (ev.total_score ?? 0) > 0 ? getRank(ev.total_score).text : '';
 
         const bchScore = isRejected ? ev.bch_total_score : isApproved ? ev.total_score : null;
         const bchTotal = hasEval && bchScore != null ? bchScore : '';
-        const bchRank = hasEval && bchScore != null ? getRank(bchScore).text : '';
+        const bchRank = hasEval && bchScore != null && bchScore > 0 ? getRank(bchScore).text : '';
 
         const finalScore = isRejected ? ev.bch_total_score : ev.total_score;
-        if (hasEval && finalScore != null) {
+        if (hasEval && finalScore != null && finalScore > 0) {
           if (finalScore >= 90) countA++;
           else if (finalScore >= 70) countB++;
           else if (finalScore >= 50) countC++;
           else countD++;
         }
 
-        const note = isRejected ? (ev.bch_note || ev.note || '') : (ev.note || '');
+        const rawNote = isRejected ? (ev.bch_note || ev.note || '') : (ev.note || '');
+        const note = !hasEval ? (rawNote || 'Đoàn viên mới') : rawNote;
         const rowIdx = rows.length;
         dataRowIndices.push(rowIdx);
 
@@ -1166,7 +1167,7 @@ export default function DepartmentDashboard() {
                       </td>
                       
                       {/* Ghi chú */}
-                      <td className="p-1 border-b border-slate-700/50"><input type="text" className="w-full bg-slate-900/50 border border-slate-700 rounded px-1 py-1 text-xs focus:border-blue-500 focus:outline-none disabled:opacity-50" disabled={isLocked} value={ev.note ?? ''} onChange={e => handleScoreChange(member.id, 'note', e.target.value)} placeholder="..." /></td>
+                      <td className="p-1 border-b border-slate-700/50"><input type="text" className="w-full bg-slate-900/50 border border-slate-700 rounded px-1 py-1 text-xs focus:border-blue-500 focus:outline-none disabled:opacity-50" disabled={isLocked} value={ev.note ?? ''} onChange={e => handleScoreChange(member.id, 'note', e.target.value)} placeholder={!(ev.id || ev.total_score !== undefined) ? 'Đoàn viên mới' : '...'} /></td>
                       
                       {/* Thao tác */}
                       <td className="table-td text-center border-b border-slate-700/50 p-1">
