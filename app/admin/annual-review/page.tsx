@@ -76,25 +76,66 @@ export default function AnnualReviewPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [{ data: deptsData }, { data: membersData }, { data: evalsData }] = await Promise.all([
+      const fetchAllMembers = async () => {
+        const all: any[] = [];
+        const pageSize = 1000;
+        let from = 0;
+        while (true) {
+          const { data, error } = await supabase
+            .from('members')
+            .select('*')
+            .order('created_at', { ascending: true })
+            .order('id', { ascending: true })
+            .range(from, from + pageSize - 1);
+          if (error) throw error;
+          if (!data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < pageSize) break;
+          from += pageSize;
+        }
+        return all;
+      };
+
+      const fetchAllEvaluations = async () => {
+        const all: any[] = [];
+        const pageSize = 1000;
+        let from = 0;
+        while (true) {
+          const { data, error } = await supabase
+            .from('evaluations')
+            .select('id, member_id, year, month, total_score, bch_total_score, status')
+            .or(
+              `and(year.eq.${selectedYear - 1},month.eq.12),and(year.eq.${selectedYear},month.gte.1,month.lte.11)`
+            )
+            .order('id', { ascending: true })
+            .range(from, from + pageSize - 1);
+          if (error) throw error;
+          if (!data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < pageSize) break;
+          from += pageSize;
+        }
+        return all;
+      };
+
+      const [{ data: deptsData }, allMembers, evalsData] = await Promise.all([
         supabase.from('departments').select('id, name').order('name', { ascending: true }),
-        supabase.from('members').select('*').order('created_at', { ascending: true }),
-        supabase
-          .from('evaluations')
-          .select('member_id, year, month, total_score, bch_total_score, status')
-          .or(
-            `and(year.eq.${selectedYear - 1},month.eq.12),and(year.eq.${selectedYear},month.gte.1,month.lte.11)`
-          ),
+        fetchAllMembers(),
+        fetchAllEvaluations(),
       ]);
 
       setDepartments(deptsData || []);
-      const allMembers = membersData || [];
 
       // Map member_id -> member để tra cứu tên chuẩn hóa và thời điểm tạo
       const memberById: Record<string, any> = {};
       allMembers.forEach((m) => {
         memberById[m.id] = m;
       });
+
+      const getEffectiveScore = (ev: any) => {
+        if (!ev) return 0;
+        return ev.status === 'rejected' ? (ev.bch_total_score || 0) : (ev.total_score || 0);
+      };
 
       const mapById: Record<string, any> = {};
       const mapByName: Record<string, any> = {};
@@ -111,10 +152,15 @@ export default function AnnualReviewPage() {
           if (!existingEv) {
             mapByName[nameKey] = { ...ev, _memberCreatedAt: m.created_at };
           } else {
-            // Ưu tiên bản ghi của member được tạo mới hơn (ở chi đoàn mới)
+            // Ưu tiên bản ghi có điểm > 0; nếu cả hai đều có điểm > 0 thì ưu tiên member mới hơn
+            const currScore = getEffectiveScore(ev);
+            const prevScore = getEffectiveScore(existingEv);
             const currCreated = new Date(m.created_at || 0).getTime();
             const prevCreated = new Date(existingEv._memberCreatedAt || 0).getTime();
-            if (currCreated >= prevCreated) {
+            if (
+              (currScore > 0 && prevScore <= 0) ||
+              ((currScore > 0) === (prevScore > 0) && currCreated >= prevCreated)
+            ) {
               mapByName[nameKey] = { ...ev, _memberCreatedAt: m.created_at };
             }
           }
@@ -174,8 +220,17 @@ export default function AnnualReviewPage() {
     let sum = 0;
     let count = 0;
     const scores = monthSlots.map((slot) => {
-      // Ưu tiên điểm trên member_id hiện tại; nếu tháng đó ở chi đoàn mới chưa có thì tự kéo điểm theo tên từ chi đoàn cũ
-      const ev = evalMap[`${memberId}_${slot.key}`] || nameEvalMap[`${norm}_${slot.key}`];
+      // Ưu tiên điểm trên member_id hiện tại nếu có điểm > 0; nếu không có thì tự kéo điểm theo tên từ chi đoàn cũ
+      const directEv = evalMap[`${memberId}_${slot.key}`];
+      const directVal = directEv
+        ? directEv.status === 'rejected'
+          ? directEv.bch_total_score
+          : directEv.total_score
+        : null;
+      const ev =
+        typeof directVal === 'number' && directVal > 0
+          ? directEv
+          : nameEvalMap[`${norm}_${slot.key}`] || directEv;
       if (!ev) return { score: null as number | null, isRejected: false };
       const isRejected = ev.status === 'rejected';
       const val = isRejected ? ev.bch_total_score : ev.total_score;
