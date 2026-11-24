@@ -540,116 +540,136 @@ export default function AnnualReviewPage() {
   );
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-500 pb-10 flex flex-col">
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-slate-900 p-4 rounded-xl border border-slate-800 shadow-lg">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-blue-400 flex items-center gap-2">
-            <Award size={22} />
-            Tổng hợp bình xét cuối năm {selectedYear}
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Tự động tổng hợp điểm từ tháng 12/{selectedYear - 1} đến tháng 11/{selectedYear}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            className="form-input w-auto font-medium py-1.5 bg-slate-800 border-slate-700"
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(Number(e.target.value))}
-          >
-            {yearOptions.map((y) => (
-              <option key={y} value={y}>
-                Năm {y} (T12/{String(y - 1).slice(-2)} - T11/{String(y).slice(-2)})
-              </option>
-            ))}
-          </select>
-
-          <select
-            className="form-input w-auto font-medium py-1.5 bg-slate-800 border-slate-700 max-w-[220px]"
-            value={deptFilter}
-            onChange={(e) => setDeptFilter(e.target.value)}
-          >
-            <option value="all">Tất cả chi đoàn</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-
-          <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Tìm đoàn viên..."
-              className="form-input pl-9 py-1.5 w-44 bg-slate-800 border-slate-700 text-sm"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+    <div className="flex flex-col gap-2 h-full min-h-0 overflow-hidden animate-in fade-in duration-300">
+      {/* Compact Header + Filters + Inline Stats */}
+      <div className="flex flex-col gap-2 bg-slate-900/90 px-3 py-2 rounded-xl border border-slate-800 shadow-lg shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <Award size={18} className="text-blue-400 shrink-0" />
+            <h1 className="text-base sm:text-lg font-bold text-blue-400 whitespace-nowrap">
+              Bình xét cuối năm {selectedYear}
+            </h1>
+            <span className="hidden xl:inline text-xs text-slate-400 whitespace-nowrap">
+              (T12/{selectedYear - 1} – T11/{selectedYear})
+            </span>
           </div>
 
-          <button className="btn btn-secondary py-1.5 px-3 text-sm" onClick={exportExcel}>
-            <FileDown size={16} />
-            Xuất Excel
-          </button>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <select
+              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2 py-1 text-xs font-medium focus:outline-none focus:border-blue-500"
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
+            >
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>
+                  Năm {y} (T12/{String(y - 1).slice(-2)}-T11/{String(y).slice(-2)})
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="bg-slate-800 border border-slate-700 text-white rounded-lg px-2 py-1 text-xs font-medium max-w-[190px] focus:outline-none focus:border-blue-500"
+              value={deptFilter}
+              onChange={(e) => setDeptFilter(e.target.value)}
+            >
+              <option value="all">Tất cả chi đoàn</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Tìm đoàn viên..."
+                className="bg-slate-800 border border-slate-700 text-white rounded-lg pl-7 pr-2 py-1 w-36 sm:w-40 text-xs focus:outline-none focus:border-blue-500"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+
+            <button
+              className="btn btn-secondary py-1 px-2.5 text-xs"
+              onClick={exportExcel}
+            >
+              <FileDown size={14} />
+              Xuất Excel
+            </button>
+          </div>
+        </div>
+
+        {/* Compact Stats Bar */}
+        <div className="flex flex-wrap items-center gap-2 pt-1.5 border-t border-slate-800/80 text-xs">
+          <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300">
+            Tổng: <strong className="text-white">{stats.total}</strong>
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-300 border border-blue-500/20">
+            Có điểm: <strong>{stats.evaluated}</strong>
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+            HTXSNV (A): <strong>{stats.A}</strong>
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-300 border border-sky-500/20">
+            HTTNV (B): <strong>{stats.B}</strong>
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20">
+            HTNV (C): <strong>{stats.C}</strong>
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-300 border border-rose-500/20">
+            KHTNV (D): <strong>{stats.D}</strong>
+          </span>
         </div>
       </div>
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="glass-panel p-3 text-center">
-          <div className="text-xs text-slate-400">Tổng đoàn viên</div>
-          <div className="text-xl font-bold text-white mt-1">{stats.total}</div>
-        </div>
-        <div className="glass-panel p-3 text-center">
-          <div className="text-xs text-slate-400">Đã có điểm</div>
-          <div className="text-xl font-bold text-blue-400 mt-1">{stats.evaluated}</div>
-        </div>
-        <div className="glass-panel p-3 text-center">
-          <div className="text-xs text-slate-400">HTXSNV (A)</div>
-          <div className="text-xl font-bold text-emerald-400 mt-1">{stats.A}</div>
-        </div>
-        <div className="glass-panel p-3 text-center">
-          <div className="text-xs text-slate-400">HTTNV (B)</div>
-          <div className="text-xl font-bold text-sky-400 mt-1">{stats.B}</div>
-        </div>
-        <div className="glass-panel p-3 text-center">
-          <div className="text-xs text-slate-400">HTNV (C)</div>
-          <div className="text-xl font-bold text-amber-400 mt-1">{stats.C}</div>
-        </div>
-        <div className="glass-panel p-3 text-center">
-          <div className="text-xs text-slate-400">KHTNV (D)</div>
-          <div className="text-xl font-bold text-rose-400 mt-1">{stats.D}</div>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="glass-panel overflow-hidden border border-slate-700/50 shadow-2xl">
-        <div className="overflow-auto max-h-[calc(100vh-300px)]">
-          <table className="w-full text-left border-collapse">
-            <thead className="sticky top-0 z-10 bg-slate-900 shadow-md">
+      {/* Table - tự co giãn vừa khít phần màn hình còn lại */}
+      <div className="glass-panel overflow-hidden border border-slate-700/50 shadow-2xl w-full flex-1 min-h-0 flex flex-col">
+        <div className="overflow-auto flex-1">
+          <table className="w-full text-left border-separate border-spacing-0">
+            <thead className="sticky top-0 z-30 bg-slate-900">
               <tr>
-                <th rowSpan={2} className="table-th text-center w-10 border-r border-slate-700/50 text-xs">
+                <th
+                  rowSpan={2}
+                  className="sticky left-0 z-40 bg-slate-900 table-th text-center w-[42px] min-w-[42px] border-r border-b border-slate-700/80 text-[11px] px-1 py-2"
+                >
                   TT
                 </th>
-                <th rowSpan={2} className="table-th min-w-[180px] border-r border-slate-700/50 text-xs">
+                <th
+                  rowSpan={2}
+                  className="sticky left-[42px] z-40 bg-slate-900 table-th w-[190px] min-w-[190px] border-r border-b border-slate-700/80 text-[11px] px-2.5 py-2"
+                >
                   Họ và tên
                 </th>
-                <th rowSpan={2} className="table-th min-w-[110px] border-r border-slate-700/50 text-xs">
+                <th
+                  rowSpan={2}
+                  className="sticky left-[232px] z-40 bg-slate-900 table-th w-[155px] min-w-[155px] border-r-2 border-b border-slate-600 text-[11px] px-2.5 py-2 shadow-[2px_0_6px_rgba(0,0,0,0.4)]"
+                >
                   Chức danh
                 </th>
-                <th colSpan={12} className="table-th text-center border-r border-slate-700/50 bg-slate-800/60 text-xs">
+                <th
+                  colSpan={12}
+                  className="bg-slate-800 table-th text-center border-r border-b border-slate-700/80 text-[11px] py-1.5"
+                >
                   ĐIỂM BÌNH XÉT
                 </th>
-                <th rowSpan={2} className="table-th text-center w-24 border-r border-slate-700/50 text-xs">
+                <th
+                  rowSpan={2}
+                  className="bg-slate-900 table-th text-center w-[72px] min-w-[72px] border-r border-b border-slate-700/80 text-[11px] px-1 py-2"
+                >
                   Trung bình
                 </th>
-                <th rowSpan={2} className="table-th text-center w-28 border-r border-slate-700/50 text-xs">
+                <th
+                  rowSpan={2}
+                  className="bg-slate-900 table-th text-center w-[78px] min-w-[78px] border-r border-b border-slate-700/80 text-[11px] px-1 py-2"
+                >
                   Đánh giá
                 </th>
-                <th rowSpan={2} className="table-th text-center w-14 text-xs">
+                <th
+                  rowSpan={2}
+                  className="bg-slate-900 table-th text-center w-[44px] min-w-[44px] border-b border-slate-700/80 text-[11px] px-1 py-2"
+                >
                   Xóa
                 </th>
               </tr>
@@ -657,14 +677,14 @@ export default function AnnualReviewPage() {
                 {monthSlots.map((slot) => (
                   <th
                     key={slot.key}
-                    className="table-th text-center w-14 border-r border-slate-700/50 bg-slate-800/40 text-[11px] px-1"
+                    className="bg-slate-800 table-th text-center min-w-[46px] border-r border-b border-slate-700/80 text-[11px] px-1 py-1.5 whitespace-nowrap"
                   >
                     {slot.label}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800">
+            <tbody>
               {loading ? (
                 <tr>
                   <td colSpan={18} className="text-center py-10 text-slate-400">
@@ -682,28 +702,31 @@ export default function AnnualReviewPage() {
                   let stt = 1;
                   return filteredDepartments.map((dept) => (
                     <Fragment key={dept.id}>
-                      <tr className="bg-slate-800/70">
-                        <td colSpan={18} className="px-4 py-2 font-bold text-blue-300 text-xs uppercase tracking-wide">
-                          {dept.name}
+                      <tr className="bg-slate-800">
+                        <td
+                          colSpan={18}
+                          className="px-3 py-2 font-bold text-blue-300 text-xs uppercase tracking-wide border-b border-slate-700/80 bg-slate-800"
+                        >
+                          <span className="sticky left-3 inline-block">{dept.name}</span>
                         </td>
                       </tr>
                       {dept.members.map((member: any) => {
                         const { scores, avg, rank } = getMemberSummary(member);
                         return (
-                          <tr key={member.id} className="hover:bg-slate-800/30 transition-colors">
-                            <td className="table-td text-center text-xs text-slate-400 border-r border-slate-800/60">
+                          <tr key={member.id} className="group hover:bg-slate-800/40 transition-colors">
+                            <td className="sticky left-0 z-20 bg-slate-900 group-hover:bg-slate-800 table-td text-center text-xs text-slate-400 border-r border-b border-slate-800 px-1 py-2 w-[42px] min-w-[42px]">
                               {stt++}
                             </td>
-                            <td className="table-td font-medium text-sm text-white border-r border-slate-800/60">
+                            <td className="sticky left-[42px] z-20 bg-slate-900 group-hover:bg-slate-800 table-td font-medium text-xs sm:text-sm text-white border-r border-b border-slate-800 px-2.5 py-2 w-[190px] min-w-[190px] whitespace-normal break-words leading-snug">
                               {member.full_name}
                             </td>
-                            <td className="table-td text-xs text-slate-300 border-r border-slate-800/60">
+                            <td className="sticky left-[232px] z-20 bg-slate-900 group-hover:bg-slate-800 table-td text-xs text-slate-300 border-r-2 border-b border-slate-700 px-2.5 py-2 w-[155px] min-w-[155px] whitespace-normal break-words leading-snug shadow-[2px_0_6px_rgba(0,0,0,0.35)]">
                               {member.title}
                             </td>
                             {scores.map((s, idx) => (
                               <td
                                 key={idx}
-                                className={`table-td text-center text-xs border-r border-slate-800/60 px-1 ${
+                                className={`table-td text-center text-xs border-r border-b border-slate-800 px-1 py-2 ${
                                   s.isRejected ? 'text-amber-300 font-semibold' : 'text-slate-200'
                                 }`}
                                 title={s.isRejected ? 'Điểm do BCH Đoàn chấm lại' : undefined}
@@ -711,23 +734,23 @@ export default function AnnualReviewPage() {
                                 {s.score != null ? s.score : <span className="text-slate-600">-</span>}
                               </td>
                             ))}
-                            <td className="table-td text-center font-bold text-sm text-blue-300 border-r border-slate-800/60">
+                            <td className="table-td text-center font-bold text-xs text-blue-300 border-r border-b border-slate-800 px-1 py-2 whitespace-nowrap">
                               {avg != null ? avg : <span className="text-slate-600">-</span>}
                             </td>
-                            <td className="table-td text-center border-r border-slate-800/60">
+                            <td className="table-td text-center border-r border-b border-slate-800 px-1 py-2 whitespace-nowrap">
                               {avg != null ? (
-                                <span className={`badge ${rank.class}`}>{rank.text}</span>
+                                <span className={`badge ${rank.class} text-[10px] px-1.5 py-0.5`}>{rank.text}</span>
                               ) : (
                                 <span className="text-slate-600 text-xs">-</span>
                               )}
                             </td>
-                            <td className="table-td text-center">
+                            <td className="table-td text-center border-b border-slate-800 px-1 py-2">
                               <button
-                                className="p-1.5 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                className="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
                                 title="Xóa đoàn viên"
                                 onClick={() => handleDeleteMember(member)}
                               >
-                                <Trash2 size={15} />
+                                <Trash2 size={14} />
                               </button>
                             </td>
                           </tr>

@@ -32,9 +32,11 @@ export default function DashboardLayout({
     return null;
   }
 
+  const isFullViewport = pathname.includes('/annual-review');
+
   return (
-    <div className="flex flex-col min-h-screen">
-      <nav className="sticky top-0 z-50 bg-slate-900/80 backdrop-blur-xl border-b border-slate-800 px-6 py-4 flex items-center justify-between shadow-sm">
+    <div className={`flex flex-col ${isFullViewport ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
+      <nav className="sticky top-0 z-50 shrink-0 bg-slate-900/80 backdrop-blur-xl border-b border-slate-800 px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-8">
           <div className="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
             Đoàn Viên VN
@@ -101,7 +103,13 @@ export default function DashboardLayout({
         </div>
       </nav>
 
-      <main className="flex-1 w-full max-w-[1400px] mx-auto p-6 md:p-8">
+      <main
+        className={`flex-1 w-full mx-auto ${
+          isFullViewport
+            ? 'max-w-full px-3 py-2 min-h-0 overflow-hidden flex flex-col'
+            : 'max-w-[1400px] p-6 md:p-8'
+        }`}
+      >
         {children}
       </main>
     </div>
