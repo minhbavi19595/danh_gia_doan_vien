@@ -8,6 +8,7 @@ import { useToast } from '@/contexts/ToastContext';
 import XLSX from 'xlsx-js-style';
 import { sortMembersByTitle } from '@/lib/sortMembers';
 import { getMaxEvaluationPeriod, getAvailableYears, getAvailableMonths } from '@/lib/evaluationPeriod';
+import { fetchMembersForPeriod } from '@/lib/periodMembers';
 import CustomSelect from '@/components/CustomSelect';
 
 export default function DepartmentDetail() {
@@ -61,11 +62,7 @@ export default function DepartmentDetail() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: membersData } = await supabase
-        .from('members')
-        .select('*')
-        .eq('department_id', deptId)
-        .order('created_at', { ascending: true });
+      const { members: membersData } = await fetchMembersForPeriod(currentYear, currentMonth, deptId);
 
       setMembers(sortMembersByTitle(membersData || []));
 

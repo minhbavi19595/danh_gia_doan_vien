@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { Users, TrendingUp, Award, AlertTriangle, Eye } from 'lucide-react';
 import Link from 'next/link';
 import { getMaxEvaluationPeriod, getAvailableYears, getAvailableMonths } from '@/lib/evaluationPeriod';
+import { fetchMembersForPeriod } from '@/lib/periodMembers';
 import CustomSelect from '@/components/CustomSelect';
 
 export default function AdminDashboard() {
@@ -22,26 +23,34 @@ export default function AdminDashboard() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const { data: evals, error: evalError } = await supabase
-        .from('evaluations')
-        .select(`
-          total_score,
-          bch_total_score,
-          status,
-          members!inner (
-            department_id,
-            departments ( id, name )
-          )
-        `)
-        .eq('year', currentYear)
-        .eq('month', currentMonth);
+      const [{ members: periodMembers }, { data: deptsData }, { data: evals, error: evalError }] = await Promise.all([
+        fetchMembersForPeriod(currentYear, currentMonth),
+        supabase.from('departments').select('id, name'),
+        supabase
+          .from('evaluations')
+          .select('member_id, department_id, total_score, bch_total_score, status')
+          .eq('year', currentYear)
+          .eq('month', currentMonth),
+      ]);
 
       if (evalError) throw evalError;
+
+      const deptNameById: Record<string, string> = {};
+      (deptsData || []).forEach((d) => {
+        deptNameById[d.id] = d.name;
+      });
+
+      const memberDeptById: Record<string, string> = {};
+      periodMembers.forEach((m) => {
+        if (m.department_id) memberDeptById[m.id] = m.department_id;
+      });
+      const validMemberIds = new Set(periodMembers.map((m) => m.id));
 
       let A = 0, B = 0, C = 0, D = 0;
       const deptMap: Record<string, any> = {};
 
       (evals || []).forEach(e => {
+        if (!validMemberIds.has(e.member_id)) return;
         const score = e.status === 'rejected' ? (e.bch_total_score || 0) : (e.total_score || 0);
         if (score <= 0) return;
         let type = '';
@@ -50,10 +59,8 @@ export default function AdminDashboard() {
         else if (score >= 50) { C++; type = 'C'; }
         else { D++; type = 'D'; }
 
-        // @ts-ignore
-        const deptName = e.members?.departments?.name || 'Không rõ';
-        // @ts-ignore
-        const deptId = e.members?.departments?.id || '';
+        const deptId = memberDeptById[e.member_id] || e.department_id || '';
+        const deptName = deptNameById[deptId] || 'Không rõ';
         if (!deptMap[deptName]) {
           deptMap[deptName] = { id: deptId, A: 0, B: 0, C: 0, D: 0, total: 0 };
         }

@@ -8,6 +8,7 @@ import { Save, UserPlus, RefreshCw, X, FileDown, Zap, Check, ArrowRightLeft, Sea
 import XLSX from 'xlsx-js-style';
 import { sortMembersByTitle } from '@/lib/sortMembers';
 import { getMaxEvaluationPeriod, getAvailableYears, getAvailableMonths } from '@/lib/evaluationPeriod';
+import { fetchMembersForPeriod } from '@/lib/periodMembers';
 import CustomSelect from '@/components/CustomSelect';
 
 export default function DepartmentDashboard() {
@@ -78,11 +79,7 @@ export default function DepartmentDashboard() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: membersData } = await supabase
-        .from('members')
-        .select('*')
-        .eq('department_id', departmentId)
-        .order('created_at', { ascending: true });
+      const { members: membersData } = await fetchMembersForPeriod(currentYear, currentMonth, departmentId);
       
       setMembers(sortMembersByTitle(membersData || []));
 
@@ -197,6 +194,9 @@ export default function DepartmentDashboard() {
       const cleanName = memberForm.full_name.trim().replace(/\s+/g, ' ');
       const ok = await checkDuplicateNameAndConfirm(cleanName);
       if (!ok) return;
+
+      // Đảm bảo kỳ cũ đã chốt xong trước khi thêm đoàn viên mới cho kỳ hiện tại
+      await supabase.rpc('ensure_closed_periods').then(() => {}, () => {});
 
       const { error } = await supabase
         .from('members')
